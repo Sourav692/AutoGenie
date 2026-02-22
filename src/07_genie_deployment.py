@@ -143,7 +143,7 @@ def build_serialized_space(knowledge_store, include_join_specs=True):
     if full_text.strip():
         text_instructions.append({
             "id": _uid(),
-            "content": [full_text.strip()[:5000]],
+            "content": [full_text.strip()],
         })
 
     join_specs = []
