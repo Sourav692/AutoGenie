@@ -85,25 +85,39 @@ else:
 # COMMAND ----------
 
 # DBTITLE 1,Create Genie Space
+from langchain_core.messages import SystemMessage, HumanMessage
+from databricks_langchain import ChatDatabricks
+
+LLM_MODEL = "databricks-claude-opus-4-6"
+
+
 def _uid():
     return uuid.uuid4().hex
 
 
-def build_serialized_space(knowledge_store):
-    """Build the version-2 serialized_space with all structured fields.
+def _build_join_text(knowledge_store):
+    """Build human-readable join documentation for text_instructions."""
+    lines = ["TABLE RELATIONSHIPS (JOIN CONDITIONS):"]
+    for j in knowledge_store.get('joins', []):
+        src_short = j['source_table'].split('.')[-1]
+        tgt_short = j['target_table'].split('.')[-1]
+        lines.append(
+            f"- {src_short}.{j['source_column']} = {tgt_short}.{j['target_column']} "
+            f"({j.get('join_type', 'INNER')} JOIN) — {j.get('explanation', '')}"
+        )
+    return "\n".join(lines)
 
-    Populates:
-      data_sources.tables            — UC table identifiers + descriptions
-      config.sample_questions        — NL questions for the sidebar
-      instructions.text_instructions — single global instruction block
-      instructions.join_specs        — explicit join conditions
-      instructions.example_question_sqls — NL + SQL pairs
-      instructions.sql_snippets.measures    — aggregate expressions
-      instructions.sql_snippets.filters     — WHERE-clause snippets
-      instructions.sql_snippets.expressions — computed columns / dimensions
+
+def build_serialized_space(knowledge_store, include_join_specs=True):
+    """Build the version-2 serialized_space dict.
+
+    Args:
+        knowledge_store: The assembled knowledge store dict.
+        include_join_specs: If True, emit structured join_specs.
+                           If False, embed join info in text_instructions instead
+                           (fallback for APIs that reject join_specs).
     """
 
-    # ── data_sources.tables ───────────────────────────────────────────────
     tables = []
     for tbl in knowledge_store['tables']:
         entry = {"identifier": tbl['full_name']}
@@ -111,7 +125,6 @@ def build_serialized_space(knowledge_store):
             entry["description"] = [tbl['description'][:500]]
         tables.append(entry)
 
-    # ── config.sample_questions ───────────────────────────────────────────
     sample_questions = []
     for eq in knowledge_store.get('example_queries', []):
         sample_questions.append({
@@ -120,22 +133,11 @@ def build_serialized_space(knowledge_store):
         })
     sample_questions.sort(key=lambda x: x["id"])
 
-    # ── instructions.text_instructions (single block) ─────────────────────
-    # Merge global instructions + join documentation into one block
     full_text = ""
     if knowledge_store.get('global_instructions'):
-        full_text += knowledge_store['global_instructions'].strip() + "\n\n"
-
-    if knowledge_store.get('joins'):
-        full_text += "TABLE RELATIONSHIPS (JOIN CONDITIONS):\n"
-        for j in knowledge_store['joins']:
-            src_simple = j['source_table'].split('.')[-1]
-            tgt_simple = j['target_table'].split('.')[-1]
-            full_text += (
-                f"- {src_simple}.{j['source_column']} = {tgt_simple}.{j['target_column']} "
-                f"({j.get('join_type', 'INNER')} JOIN) — {j.get('explanation', '')}\n"
-            )
-        full_text += "\n"
+        full_text = knowledge_store['global_instructions'].strip()
+    if not include_join_specs and knowledge_store.get('joins'):
+        full_text += "\n\n" + _build_join_text(knowledge_store)
 
     text_instructions = []
     if full_text.strip():
@@ -144,7 +146,20 @@ def build_serialized_space(knowledge_store):
             "content": [full_text.strip()[:5000]],
         })
 
-    # ── instructions.example_question_sqls ────────────────────────────────
+    join_specs = []
+    if include_join_specs:
+        for j in knowledge_store.get('joins', []):
+            src_col = j['source_column']
+            tgt_col = j['target_column']
+            src_table_short = j['source_table'].split('.')[-1]
+            tgt_table_short = j['target_table'].split('.')[-1]
+            join_specs.append({
+                "id": _uid(),
+                "left": {"identifier": j['source_table']},
+                "right": {"identifier": j['target_table']},
+                "sql": [f"{src_table_short}.{src_col} = {tgt_table_short}.{tgt_col}"],
+            })
+
     example_question_sqls = []
     for eq in knowledge_store.get('example_queries', []):
         if eq.get('sql'):
@@ -155,7 +170,6 @@ def build_serialized_space(knowledge_store):
             })
     example_question_sqls.sort(key=lambda x: x["id"])
 
-    # ── instructions.sql_snippets ─────────────────────────────────────────
     snippet_measures = []
     for m in knowledge_store['sql_expressions'].get('measures', []):
         alias = m['name'].lower().replace(' ', '_').replace('-', '_')[:50]
@@ -187,54 +201,193 @@ def build_serialized_space(knowledge_store):
         })
     snippet_expressions.sort(key=lambda x: x["id"])
 
-    # ── assemble ──────────────────────────────────────────────────────────
-    serialized = {
-        "version": 2,
-        "config": {
-            "sample_questions": sample_questions,
-        },
-        "data_sources": {
-            "tables": tables,
-        },
-        "instructions": {
-            "text_instructions": text_instructions,
-            "example_question_sqls": example_question_sqls,
-            "sql_snippets": {
-                "measures": snippet_measures,
-                "filters": snippet_filters,
-                "expressions": snippet_expressions,
-            },
+    instructions = {
+        "text_instructions": text_instructions,
+        "example_question_sqls": example_question_sqls,
+        "sql_snippets": {
+            "measures": snippet_measures,
+            "filters": snippet_filters,
+            "expressions": snippet_expressions,
         },
     }
-    return json.dumps(serialized, indent=2, default=str)
+    if join_specs:
+        instructions["join_specs"] = join_specs
+
+    serialized = {
+        "version": 2,
+        "config": {"sample_questions": sample_questions},
+        "data_sources": {"tables": tables},
+        "instructions": instructions,
+    }
+    return serialized
+
+
+REFERENCE_SCHEMA = """\
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [{"id": "<hex32>", "question": ["<str>"]}]
+  },
+  "data_sources": {
+    "tables": [{"identifier": "<catalog.schema.table>", "description": ["<str>"]}]
+  },
+  "instructions": {
+    "text_instructions": [{"id": "<hex32>", "content": ["<str>"]}],
+    "example_question_sqls": [{"id": "<hex32>", "question": ["<str>"], "sql": ["<str>"]}],
+    "join_specs": [{"id":"<hex32>","left":{"identifier":"<tbl>"},"right":{"identifier":"<tbl>"},"sql":["<condition>"]}],
+    "sql_snippets": {
+      "filters": [{"id": "<hex32>", "display_name": "<str>", "sql": ["<str>"]}],
+      "expressions": [{"id": "<hex32>", "alias": "<str>", "sql": ["<str>"]}],
+      "measures": [{"id": "<hex32>", "alias": "<str>", "sql": ["<str>"]}]
+    }
+  }
+}"""
+
+
+def validate_and_reformat_payload(payload_dict, model=LLM_MODEL):
+    """Use ChatDatabricks to validate the payload structure.
+
+    Sends a compact schema-only prompt to minimize guardrail triggers.
+    Falls back gracefully to the original payload on any failure.
+    """
+    payload_json = json.dumps(payload_dict, indent=2, default=str)
+
+    system_prompt = (
+        "You are a JSON schema validator for a data analytics workspace configuration API. "
+        "Given a draft JSON payload, ensure it conforms to this target schema:\n\n"
+        + REFERENCE_SCHEMA + "\n\n"
+        "Rules: (1) Output valid JSON only, no markdown fences, no commentary. "
+        "(2) Preserve ALL data — do not remove any entries. "
+        "(3) Array values (question, sql, content, description) must be lists of strings. "
+        "(4) Keep all existing 32-char hex ids unchanged. "
+        "(5) sql_snippets.filters use 'display_name'; expressions and measures use 'alias'. "
+        "(6) version must be integer 2. "
+        "(7) Do not add sections not present in the input. "
+        "Return ONLY the corrected JSON."
+    )
+
+    print(f"🤖 Validating payload via LLM...")
+    print(f"   Payload size: {len(payload_json):,} chars")
+
+    try:
+        llm = ChatDatabricks(model=model)
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="Validate this JSON configuration:\n\n" + payload_json),
+        ])
+
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
+
+        validated = json.loads(raw)
+
+        orig_tables = len(payload_dict.get('data_sources', {}).get('tables', []))
+        val_tables = len(validated.get('data_sources', {}).get('tables', []))
+        orig_eqs = len(payload_dict.get('instructions', {}).get('example_question_sqls', []))
+        val_eqs = len(validated.get('instructions', {}).get('example_question_sqls', []))
+
+        if val_tables < orig_tables:
+            print(f"  ⚠️  LLM dropped tables ({orig_tables} → {val_tables}) — using original")
+            return payload_dict
+        if val_eqs < orig_eqs * 0.8:
+            print(f"  ⚠️  LLM dropped examples ({orig_eqs} → {val_eqs}) — using original")
+            return payload_dict
+
+        print(f"✅ Payload validated successfully")
+        return validated
+
+    except json.JSONDecodeError as e:
+        print(f"  ⚠️  LLM returned invalid JSON ({e}) — using original")
+        return payload_dict
+    except Exception as e:
+        print(f"  ⚠️  LLM validation skipped ({type(e).__name__}) — using original")
+        return payload_dict
 
 
 def create_genie_space(knowledge_store, config, workspace_client):
-    """Create a Genie space using the Databricks SDK."""
+    """Create a Genie space with automatic fallback for join_specs.
+
+    The Genie API has a known limitation where join_specs may fail to parse.
+    This function tries with structured join_specs first, and if rejected,
+    falls back to embedding join info in text_instructions.
+    """
     space_name = knowledge_store['space_name']
     warehouse_id = config['genie_warehouse_id']
     description = knowledge_store.get('space_description', '')
-    serialized = build_serialized_space(knowledge_store)
+    output_dir = Path(config['output_path'].replace('/dbfs', ''))
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    ss = json.loads(serialized)
-    instr = ss.get('instructions', {})
-    print(f"Creating Genie space: {space_name}")
-    print(f"Using warehouse: {warehouse_id}")
-    print(f"Serialized space size: {len(serialized):,} chars")
-    print(f"  Tables              : {len(ss['data_sources']['tables'])}")
-    print(f"  Sample questions    : {len(ss['config']['sample_questions'])}")
+    print("─" * 60)
+    print("STEP 1: Building payload (with structured join_specs)")
+    print("─" * 60)
+    draft_payload = build_serialized_space(knowledge_store, include_join_specs=True)
+    instr = draft_payload.get('instructions', {})
+    print(f"  Tables              : {len(draft_payload['data_sources']['tables'])}")
+    print(f"  Sample questions    : {len(draft_payload['config']['sample_questions'])}")
+    print(f"  Text instructions   : {len(instr.get('text_instructions', []))}")
+    print(f"  Join specs          : {len(instr.get('join_specs', []))}")
     print(f"  Example SQL pairs   : {len(instr.get('example_question_sqls', []))}")
     print(f"  Snippet measures    : {len(instr.get('sql_snippets', {}).get('measures', []))}")
     print(f"  Snippet filters     : {len(instr.get('sql_snippets', {}).get('filters', []))}")
     print(f"  Snippet expressions : {len(instr.get('sql_snippets', {}).get('expressions', []))}")
     print()
 
-    space = workspace_client.genie.create_space(
-        warehouse_id=warehouse_id,
-        serialized_space=serialized,
-        title=space_name,
-        description=description,
-    )
+    print("─" * 60)
+    print("STEP 2: LLM validation & reformatting")
+    print("─" * 60)
+    payload = validate_and_reformat_payload(draft_payload)
+    print()
+
+    print("─" * 60)
+    print("STEP 3: Creating Genie space")
+    print("─" * 60)
+
+    serialized = json.dumps(payload, indent=2, default=str)
+    with open(output_dir / "validated_payload.json", 'w') as f:
+        f.write(serialized)
+    print(f"  💾 Payload saved to {output_dir / 'validated_payload.json'}")
+    print(f"  Space name  : {space_name}")
+    print(f"  Warehouse   : {warehouse_id}")
+    print(f"  Payload size: {len(serialized):,} chars")
+    print()
+
+    try:
+        space = workspace_client.genie.create_space(
+            warehouse_id=warehouse_id,
+            serialized_space=serialized,
+            title=space_name,
+            description=description,
+        )
+    except Exception as e:
+        error_msg = str(e)
+        has_join_specs = bool(payload.get('instructions', {}).get('join_specs'))
+
+        if has_join_specs and ("Failed to parse" in error_msg or "InvalidParameterValue" in error_msg):
+            print(f"  ⚠️  API rejected join_specs: {error_msg[:150]}")
+            print(f"  ↻  Rebuilding with joins in text_instructions instead...\n")
+
+            payload = build_serialized_space(knowledge_store, include_join_specs=False)
+            serialized = json.dumps(payload, indent=2, default=str)
+            with open(output_dir / "validated_payload.json", 'w') as f:
+                f.write(serialized)
+
+            instr_fb = payload.get('instructions', {})
+            print(f"  [Fallback payload]")
+            print(f"  Join specs          : {len(instr_fb.get('join_specs', []))} (removed)")
+            print(f"  Text instructions   : {len(instr_fb.get('text_instructions', []))} (contains join info)")
+            print(f"  Payload size: {len(serialized):,} chars\n")
+
+            space = workspace_client.genie.create_space(
+                warehouse_id=warehouse_id,
+                serialized_space=serialized,
+                title=space_name,
+                description=description,
+            )
+        else:
+            raise
 
     workspace_url = config['workspace_url'].rstrip('/')
     space_url = f"{workspace_url}/genie/rooms/{space.space_id}"

@@ -1,0 +1,142 @@
+{
+    "version": 2,
+  
+    "config": {
+      "sample_questions": [
+        {
+          "id": "a1b2c3d4e5f60000000000000000000a",
+          "question": [
+            "What were total sales last month?"
+          ]
+        },
+        {
+          "id": "b2c3d4e5f6a70000000000000000000b",
+          "question": [
+            "Show top 10 customers by revenue"
+          ]
+        }
+      ]
+    },
+  
+    "data_sources": {
+      "tables": [
+        {
+          "identifier": "sales.analytics.customers",
+          "description": [
+            "Customer master data"
+          ]
+        },
+        {
+          "identifier": "sales.analytics.orders",
+          "description": [
+            "Order transactions"
+          ]
+        },
+        {
+          "identifier": "sales.analytics.products"
+        }
+      ],
+      "metric_views": [
+        {
+          "identifier": "sales.analytics.revenue_metrics",
+          "description": [
+            "Revenue metrics"
+          ]
+        }
+      ]
+    },
+  
+    "instructions": {
+      "text_instructions": [
+        {
+          "id": "01f0b37c378e1c9100000000000000a1",
+          "content": [
+            "General instructions for the space."
+          ]
+        }
+      ],
+  
+      "example_question_sqls": [
+        {
+          "id": "01f0821116d912db00000000000000b1",
+          "question": [
+            "Show top 10 customers"
+          ],
+          "sql": [
+            "SELECT ..."
+          ]
+        }
+      ],
+  
+      "sql_functions": [
+        {
+          "id": "01f0c0b4e815100000000000000000f1",
+          "identifier": "sales.analytics.fiscal_quarter"
+        }
+      ],
+  
+      "join_specs": [
+        {
+          "id": "01f0c0b4e815100000000000000000c1",
+          "left": {
+            "identifier": "sales.analytics.orders"
+          },
+          "right": {
+            "identifier": "sales.analytics.customers"
+          },
+          "sql": [
+            "orders.customer_id = customers.customer_id"
+          ]
+        }
+      ],
+  
+      "sql_snippets": {
+        "filters": [
+          {
+            "id": "01f09972e66d100000000000000000d1",
+            "display_name": "high value",
+            "sql": [
+              "amount > 1000"
+            ]
+          }
+        ],
+        "expressions": [
+          {
+            "id": "01f09974563a100000000000000000e1",
+            "alias": "order_year",
+            "sql": [
+              "YEAR(order_date)"
+            ]
+          }
+        ],
+        "measures": [
+          {
+            "id": "01f09972611f100000000000000000f1",
+            "alias": "total_revenue",
+            "sql": [
+              "SUM(amount)"
+            ]
+          }
+        ]
+      }
+    },
+  
+    "benchmarks": {
+      "questions": [
+        {
+          "id": "01f0d0b4e815100000000000000000g1",
+          "question": [
+            "What is average order value?"
+          ],
+          "answer": [
+            {
+              "format": "SQL",
+              "content": [
+                "SELECT AVG(amount)..."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }

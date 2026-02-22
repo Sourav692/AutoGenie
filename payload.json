@@ -1,0 +1,607 @@
+{
+    "version": 2,
+    "config": {
+      "sample_questions": [
+        {
+          "id": "0389f9334635498b899ea2dd3709fcf9",
+          "question": [
+            "What is the average deal size by industry?"
+          ]
+        },
+        {
+          "id": "07f50da16cb5431b8f8a003c9b3ab6eb",
+          "question": [
+            "What are the top 5 largest open deals closing this quarter?"
+          ]
+        },
+        {
+          "id": "1a6998f4812a4deba7ae655c625089dc",
+          "question": [
+            "Who are the top 10 sales reps by total opportunity amount?"
+          ]
+        },
+        {
+          "id": "1f379b69fcac4c88b1a005ca53935ab3",
+          "question": [
+            "What is the win rate by forecast category?"
+          ]
+        },
+        {
+          "id": "3153f85e9fb64805989910bdf017758a",
+          "question": [
+            "Show accounts with no associated opportunities."
+          ]
+        },
+        {
+          "id": "3b42cffd3a6943c297e3da2762ff72c7",
+          "question": [
+            "What is the pipeline amount by region and company size segment?"
+          ]
+        },
+        {
+          "id": "40f065a14b194a278b57b858fa444f96",
+          "question": [
+            "Which accounts have the highest total opportunity value?"
+          ]
+        },
+        {
+          "id": "475dfad280fb47198f50335e3673c960",
+          "question": [
+            "Query opportunity table"
+          ]
+        },
+        {
+          "id": "5462e0e2e3fe42a8ae4251ef74739056",
+          "question": [
+            "What is the total pipeline amount by stage?"
+          ]
+        },
+        {
+          "id": "6435c1dbec864c69bcfcc1bdeef9e3ee",
+          "question": [
+            "What is the monthly trend of new opportunities created in 2024?"
+          ]
+        },
+        {
+          "id": "66e79c6625584f358c69deacfe66a65f",
+          "question": [
+            "Classify opportunities into deal size buckets and show the count per bucket."
+          ]
+        },
+        {
+          "id": "790048dd10c44a50835537fe7f11b6fa",
+          "question": [
+            "How many accounts are there in each region?"
+          ]
+        },
+        {
+          "id": "8fcb7c2e55f24acc9a9e40351c352124",
+          "question": [
+            "How has the deal amount by stage evolved over time in the history cube?"
+          ]
+        },
+        {
+          "id": "a4787ceab66a4eebadc975f35298b7f0",
+          "question": [
+            "What is the breakdown of new vs expansion bookings by region?"
+          ]
+        },
+        {
+          "id": "abb78f0cf6d94cf0b5aff752b73fc97e",
+          "question": [
+            "What is the distribution of opportunities by lead source?"
+          ]
+        },
+        {
+          "id": "b0895190bf9d41f1bcb50736217324ff",
+          "question": [
+            "What is the average days to close by deal stage?"
+          ]
+        },
+        {
+          "id": "b837db9b3b1c461683fe061ce4f4f91f",
+          "question": [
+            "How many users are in each role and segment?"
+          ]
+        },
+        {
+          "id": "e493faee9bdc4956b850fac70672d37a",
+          "question": [
+            "Which sales managers have the most pipeline under their team?"
+          ]
+        },
+        {
+          "id": "e8c4dfaa448b4e5c85b9808eafe63180",
+          "question": [
+            "What is the historical pipeline amount by region from the history cube?"
+          ]
+        },
+        {
+          "id": "f89aa1a33cbf4d148224a9766ea4a909",
+          "question": [
+            "What is the weighted pipeline by region?"
+          ]
+        }
+      ]
+    },
+    "data_sources": {
+      "tables": [
+        {
+          "identifier": "vc_catalog.aibi_sales_pipeline_review.accounts",
+          "description": [
+            "The accounts table contains 1,000 records as of 2025-07-24 19:15:07. This table stores customer/account information including contact details and status."
+          ]
+        },
+        {
+          "identifier": "vc_catalog.aibi_sales_pipeline_review.opportunity",
+          "description": [
+            "The opportunity table contains 3,019 records as of 2025-07-24 19:15:22. This table contains sales opportunity and pipeline data."
+          ]
+        },
+        {
+          "identifier": "vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube",
+          "description": [
+            "The opportunityhistory_cube table contains 4,040 records as of 2025-07-24 19:15:28. This table contains sales opportunity and pipeline data."
+          ]
+        },
+        {
+          "identifier": "vc_catalog.aibi_sales_pipeline_review.user",
+          "description": [
+            "The user table contains 89 records as of 2025-07-24 19:15:33. This table stores user information and access details."
+          ]
+        }
+      ]
+    },
+    "instructions": {
+      "text_instructions": [
+        {
+          "id": "f010613045b6479fa970f536a5829e1f",
+          "content": [
+            "This Genie space provides natural language access to the aibi_sales_pipeline_review dataset.\n\nAVAILABLE TABLES:\n\u2022 accounts: The accounts table contains 1,000 records as of 2025-07-24 19:15:07. This table stores customer/acco...\n\u2022 opportunity: The opportunity table contains 3,019 records as of 2025-07-24 19:15:22. This table contains sales op...\n\u2022 opportunityhistory_cube: The opportunityhistory_cube table contains 4,040 records as of 2025-07-24 19:15:28. This table conta...\n\u2022 user: The user table contains 89 records as of 2025-07-24 19:15:33. This table stores user information and...\n\nCOMMON QUERIES:\n\u2022 Query opportunity table\n\u2022 What is the total pipeline amount by stage?\n\u2022 Who are the top 10 sales reps by total opportunity amount?\n\u2022 What is the average deal size by industry?\n\u2022 How many accounts are there in each region?\n\nTIPS FOR BEST RESULTS:\n\u2022 Be specific about date ranges (e.g., \"last 30 days\", \"Q4 2025\")\n\u2022 Specify what metrics you want (e.g., \"total revenue\", \"count of orders\")\n\u2022 Use table names when ambiguous (e.g., \"customer name from customers table\")\n\u2022 Filter data to improve performance (avoid querying all historical data)\n\nThis space was automatically generated on 2026-02-22 10:20 using Auto-Genie MVP.\n\nTABLE RELATIONSHIPS (JOIN CONDITIONS):\n- accounts.id = user.id (INNER JOIN) \u2014 Join accounts with user using the id relationship."
+          ]
+        }
+      ],
+      "example_question_sqls": [
+        {
+          "id": "0f8009e04b1a48c58aeb9635afbad2fe",
+          "question": [
+            "What is the monthly trend of new opportunities created in 2024?"
+          ],
+          "sql": [
+            "SELECT DATE_TRUNC('month', createddate) AS created_month, COUNT(*) AS num_opportunities, SUM(amount) AS total_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE YEAR(createddate) = 2024 GROUP BY DATE_TRUNC('month', createddate) ORDER BY created_month"
+          ]
+        },
+        {
+          "id": "0f858365825549dea19e4ff29b90afa6",
+          "question": [
+            "Query opportunity table"
+          ],
+          "sql": [
+            "SELECT * FROM vc_catalog.aibi_sales_pipeline_review.user"
+          ]
+        },
+        {
+          "id": "10a40c153a3a4346b2c4f23fb2b12571",
+          "question": [
+            "What is the weighted pipeline by region?"
+          ],
+          "sql": [
+            "SELECT region, SUM(amount) AS total_pipeline, SUM(amount * probability / 100.0) AS weighted_pipeline, ROUND(AVG(probability), 2) AS avg_probability FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE stagename NOT IN ('Closed Won', 'Closed Lost') AND region IS NOT NULL GROUP BY region ORDER BY weighted_pipeline DESC"
+          ]
+        },
+        {
+          "id": "11751c3ee25a45ac9323a93677fa0ab8",
+          "question": [
+            "What is the distribution of opportunities by lead source?"
+          ],
+          "sql": [
+            "SELECT leadsource, COUNT(*) AS num_opportunities, SUM(amount) AS total_amount, ROUND(AVG(amount), 2) AS avg_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE leadsource IS NOT NULL GROUP BY leadsource ORDER BY num_opportunities DESC"
+          ]
+        },
+        {
+          "id": "2a4115f8793c4a0d8802dd6564c05fbb",
+          "question": [
+            "What are the top 5 largest open deals closing this quarter?"
+          ],
+          "sql": [
+            "SELECT name, account_name, stagename, amount, closedate FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE stagename NOT IN ('Closed Won', 'Closed Lost') AND closedate >= DATE_TRUNC('quarter', CURRENT_DATE()) AND closedate < DATE_ADD(DATE_TRUNC('quarter', CURRENT_DATE()), 90) ORDER BY amount DESC LIMIT 5"
+          ]
+        },
+        {
+          "id": "2df682d4a47747c88f9c5e6dbc9a49f0",
+          "question": [
+            "What is the average days to close by deal stage?"
+          ],
+          "sql": [
+            "SELECT stagename, ROUND(AVG(days_to_close), 1) AS avg_days_to_close, COUNT(*) AS num_deals FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE days_to_close IS NOT NULL GROUP BY stagename ORDER BY avg_days_to_close DESC"
+          ]
+        },
+        {
+          "id": "3ecfa7954f5641ba9a5b1deaa6822733",
+          "question": [
+            "How many users are in each role and segment?"
+          ],
+          "sql": [
+            "SELECT role__c, segment__c, COUNT(*) AS user_count FROM vc_catalog.aibi_sales_pipeline_review.user WHERE role__c IS NOT NULL GROUP BY role__c, segment__c ORDER BY user_count DESC"
+          ]
+        },
+        {
+          "id": "43e5cb65dadc4d73bf860a3a3a900e4e",
+          "question": [
+            "What is the pipeline amount by region and company size segment?"
+          ],
+          "sql": [
+            "SELECT region, company_size_segment__c, COUNT(*) AS deal_count, SUM(amount) AS total_pipeline FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE region IS NOT NULL AND company_size_segment__c IS NOT NULL GROUP BY region, company_size_segment__c ORDER BY region, total_pipeline DESC"
+          ]
+        },
+        {
+          "id": "4876e05130ba49d7bc804231a1aaac99",
+          "question": [
+            "What is the average deal size by industry?"
+          ],
+          "sql": [
+            "SELECT industry, COUNT(*) AS num_deals, ROUND(AVG(amount), 2) AS avg_deal_size FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE industry IS NOT NULL GROUP BY industry ORDER BY avg_deal_size DESC"
+          ]
+        },
+        {
+          "id": "84d45deaeef7430bbc47b3544b5efbd2",
+          "question": [
+            "Classify opportunities into deal size buckets and show the count per bucket."
+          ],
+          "sql": [
+            "SELECT CASE WHEN amount < 10000 THEN 'Small (<10K)' WHEN amount >= 10000 AND amount < 50000 THEN 'Medium (10K-50K)' WHEN amount >= 50000 AND amount < 200000 THEN 'Large (50K-200K)' ELSE 'Enterprise (200K+)' END AS deal_size_bucket, COUNT(*) AS num_deals, SUM(amount) AS total_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE amount IS NOT NULL GROUP BY CASE WHEN amount < 10000 THEN 'Small (<10K)' WHEN amount >= 10000 AND amount < 50000 THEN 'Medium (10K-50K)' WHEN amount >= 50000 AND amount < 200000 THEN 'Large (50K-200K)' ELSE 'Enterprise (200K+)' END ORDER BY total_amount DESC"
+          ]
+        },
+        {
+          "id": "90dd53d2a93041b292726a3210958960",
+          "question": [
+            "Which sales managers have the most pipeline under their team?"
+          ],
+          "sql": [
+            "WITH team_pipeline AS ( SELECT u.managerid, SUM(o.amount) AS total_pipeline, COUNT(o.opportunityid) AS deal_count FROM vc_catalog.aibi_sales_pipeline_review.opportunity o JOIN vc_catalog.aibi_sales_pipeline_review.user u ON o.ownerid = u.id WHERE o.stagename NOT IN ('Closed Won', 'Closed Lost') GROUP BY u.managerid ) SELECT m.name AS manager_name, tp.deal_count, tp.total_pipeline FROM team_pipeline tp JOIN vc_catalog.aibi_sales_pipeline_review.user m ON tp.managerid = m.id ORDER BY tp.total_pipeline DESC LIMIT 10"
+          ]
+        },
+        {
+          "id": "95fd08bfe6dc43ce9bdf70e846d10b39",
+          "question": [
+            "How has the deal amount by stage evolved over time in the history cube?"
+          ],
+          "sql": [
+            "SELECT DATE_TRUNC('month', CreatedDate) AS snapshot_month, DealStage, SUM(SumDealAmount) AS total_deal_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube GROUP BY DATE_TRUNC('month', CreatedDate), DealStage ORDER BY snapshot_month, DealStage"
+          ]
+        },
+        {
+          "id": "a751d96bec12417e95eba240c3b2770c",
+          "question": [
+            "Show accounts with no associated opportunities."
+          ],
+          "sql": [
+            "SELECT a.id, a.name, a.industry, a.region__c FROM vc_catalog.aibi_sales_pipeline_review.accounts a LEFT JOIN vc_catalog.aibi_sales_pipeline_review.opportunity o ON a.id = o.accountid WHERE o.opportunityid IS NULL ORDER BY a.name"
+          ]
+        },
+        {
+          "id": "b630d666d54047f2bdcc4190423bf482",
+          "question": [
+            "What is the win rate by forecast category?"
+          ],
+          "sql": [
+            "SELECT forecastcategory, COUNT(*) AS total_deals, SUM(CASE WHEN stagename = 'Closed Won' THEN 1 ELSE 0 END) AS won_deals, ROUND(100.0 * SUM(CASE WHEN stagename = 'Closed Won' THEN 1 ELSE 0 END) / COUNT(*), 2) AS win_rate_pct FROM vc_catalog.aibi_sales_pipeline_review.opportunity GROUP BY forecastcategory ORDER BY win_rate_pct DESC"
+          ]
+        },
+        {
+          "id": "bb08ec1884a44dd785ae631de362d751",
+          "question": [
+            "How many accounts are there in each region?"
+          ],
+          "sql": [
+            "SELECT region__c, COUNT(*) AS account_count FROM vc_catalog.aibi_sales_pipeline_review.accounts WHERE region__c IS NOT NULL GROUP BY region__c ORDER BY account_count DESC"
+          ]
+        },
+        {
+          "id": "d30e9a65903845c3bc6186306b98befd",
+          "question": [
+            "What is the breakdown of new vs expansion bookings by region?"
+          ],
+          "sql": [
+            "SELECT region, SUM(New_Expansion_Booking_Annual__c) AS total_new_expansion_bookings, SUM(New_Recurring_Bookings__c) AS total_new_recurring_bookings, COUNT(*) AS deal_count FROM vc_catalog.aibi_sales_pipeline_review.opportunity WHERE region IS NOT NULL GROUP BY region ORDER BY total_new_expansion_bookings DESC"
+          ]
+        },
+        {
+          "id": "e51d7e7687634016b8387527ad3398f5",
+          "question": [
+            "Who are the top 10 sales reps by total opportunity amount?"
+          ],
+          "sql": [
+            "SELECT u.name AS rep_name, COUNT(o.opportunityid) AS deal_count, SUM(o.amount) AS total_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunity o JOIN vc_catalog.aibi_sales_pipeline_review.user u ON o.ownerid = u.id GROUP BY u.name ORDER BY total_amount DESC LIMIT 10"
+          ]
+        },
+        {
+          "id": "e5a2fcd4c9f74b62b40b9508a4e14fe2",
+          "question": [
+            "What is the historical pipeline amount by region from the history cube?"
+          ],
+          "sql": [
+            "SELECT Region, SUM(SumDealAmount) AS total_deal_amount, COUNT(*) AS num_records FROM vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube WHERE Region IS NOT NULL GROUP BY Region ORDER BY total_deal_amount DESC"
+          ]
+        },
+        {
+          "id": "fa090bbf3cad447fa886c67020896c1c",
+          "question": [
+            "What is the total pipeline amount by stage?"
+          ],
+          "sql": [
+            "SELECT stagename, COUNT(*) AS num_opportunities, SUM(amount) AS total_amount FROM vc_catalog.aibi_sales_pipeline_review.opportunity GROUP BY stagename ORDER BY total_amount DESC"
+          ]
+        },
+        {
+          "id": "fa317cd6a5d14ac885f996557a6363de",
+          "question": [
+            "Which accounts have the highest total opportunity value?"
+          ],
+          "sql": [
+            "SELECT a.name AS account_name, a.industry, COUNT(o.opportunityid) AS num_opportunities, SUM(o.amount) AS total_opportunity_value FROM vc_catalog.aibi_sales_pipeline_review.accounts a JOIN vc_catalog.aibi_sales_pipeline_review.opportunity o ON a.id = o.accountid GROUP BY a.name, a.industry ORDER BY total_opportunity_value DESC LIMIT 15"
+          ]
+        }
+      ],
+      "sql_snippets": {
+        "measures": [
+          {
+            "id": "16bf6d7161544fbbbb7956b31ae3e446",
+            "alias": "total_amount",
+            "sql": [
+              "SUM(vc_catalog.aibi_sales_pipeline_review.opportunity.`amount`)"
+            ]
+          },
+          {
+            "id": "571fca08e3614881883be8634f73b843",
+            "alias": "total_opportunity_amount",
+            "sql": [
+              "SUM(vc_catalog.aibi_sales_pipeline_review.opportunity.`opportunity_amount`)"
+            ]
+          },
+          {
+            "id": "57968a08c6a84f638586ddd3a9cf82c2",
+            "alias": "total_sumdealamount",
+            "sql": [
+              "SUM(vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`SumDealAmount`)"
+            ]
+          },
+          {
+            "id": "6b31020c9f21494085dbb221a0aaec51",
+            "alias": "total_annualrevenue",
+            "sql": [
+              "SUM(vc_catalog.aibi_sales_pipeline_review.opportunity.`annualrevenue`)"
+            ]
+          },
+          {
+            "id": "808834a6dd9c4615aaf71b44c3f15d0a",
+            "alias": "total_annualrevenue",
+            "sql": [
+              "SUM(vc_catalog.aibi_sales_pipeline_review.accounts.`annualrevenue`)"
+            ]
+          }
+        ],
+        "filters": [
+          {
+            "id": "0f94e88569cd476f99da640dff2a8a94",
+            "display_name": " Rescued Data Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`_rescued_data` = ''example''"
+            ]
+          },
+          {
+            "id": "19346dbc86354b0a90043db84ee8d13f",
+            "display_name": "Region  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.accounts.`region__c` = ''example''"
+            ]
+          },
+          {
+            "id": "3cde49b058754811a60ab9e80120b5ce",
+            "display_name": "Managerid Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.user.`managerid` = ''example''"
+            ]
+          },
+          {
+            "id": "4547dbc9d10f42d682bc4c85891ea8fc",
+            "display_name": "Company Size Segment  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.accounts.`company_size_segment__c` = ''example''"
+            ]
+          },
+          {
+            "id": "48e3b56901474ef9ae10cf3a575ef276",
+            "display_name": "Region Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`Region` = ''example''"
+            ]
+          },
+          {
+            "id": "59e245cf1c994ca6af8432e149ed77df",
+            "display_name": "Type Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.accounts.`TYPE` = ''example''"
+            ]
+          },
+          {
+            "id": "5c55e91d58a9476dacf3782c929c42ff",
+            "display_name": "Recent Opportunity (Last 30 Days)",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`createddate` >= CURRENT_DATE - INTERVAL 30 DAYS"
+            ]
+          },
+          {
+            "id": "5ee4b7369fe54dd985c1b29a9ab85d55",
+            "display_name": "Role  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.user.`role__c` = ''example''"
+            ]
+          },
+          {
+            "id": "661d05731da842b3b67c0f5266b75c80",
+            "display_name": "Forecastcategory Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`forecastcategory` = ''example''"
+            ]
+          },
+          {
+            "id": "6952027e4eb14e229e7648b727c7ca1f",
+            "display_name": "Recent Opportunityhistory_Cube (Last 30 Days)",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`CreatedDate` >= CURRENT_DATE - INTERVAL 30 DAYS"
+            ]
+          },
+          {
+            "id": "6b983d956f554c6b8c0d9bb9185be139",
+            "display_name": " Rescued Data Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.user.`_rescued_data` = ''example''"
+            ]
+          },
+          {
+            "id": "823038f6cc204296b1dd039027cfee80",
+            "display_name": " Rescued Data Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.accounts.`_rescued_data` = ''example''"
+            ]
+          },
+          {
+            "id": "8262c178b26845ee9de35bb8c6017519",
+            "display_name": "Recent Opportunity (Last 30 Days)",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`closedate` >= CURRENT_DATE - INTERVAL 30 DAYS"
+            ]
+          },
+          {
+            "id": "828bd82ca1f84d30808214d7c102349d",
+            "display_name": "Leadsource Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`leadsource` = ''example''"
+            ]
+          },
+          {
+            "id": "9a0ee492b2f34e9a85fe6092b0256925",
+            "display_name": "Region  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.user.`region__c` = ''example''"
+            ]
+          },
+          {
+            "id": "a8bdf3f3dc6a408abdeb48da251903d2",
+            "display_name": "Business Type  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`business_type__c` = ''example''"
+            ]
+          },
+          {
+            "id": "a8f1acf4c0c440ce8ee2538feeaae3a0",
+            "display_name": "Stagename Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`stagename` = ''example''"
+            ]
+          },
+          {
+            "id": "afba7d7e46d34799931c487bf3d69714",
+            "display_name": "Company Size Segment  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`company_size_segment__c` = ''example''"
+            ]
+          },
+          {
+            "id": "bacf7c4828d34fa5b2c11c7ef1e5accb",
+            "display_name": "Segment  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.user.`segment__c` = ''example''"
+            ]
+          },
+          {
+            "id": "bea98a66705b4a1db366b697ec0fd9ba",
+            "display_name": "Region Hq  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.accounts.`region_hq__c` = ''example''"
+            ]
+          },
+          {
+            "id": "cd6637e901f148f5bb38bf51a522afe9",
+            "display_name": "Region Hq  C Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`region_hq__c` = ''example''"
+            ]
+          },
+          {
+            "id": "dbf03c3ad20d452190af497aa14cc8c6",
+            "display_name": "Region Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`region` = ''example''"
+            ]
+          },
+          {
+            "id": "e11c673a3ac04dda9cd16b164b3e73de",
+            "display_name": "Type Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunity.`type` = ''example''"
+            ]
+          },
+          {
+            "id": "e51de1549d11445da9c380d4448d484a",
+            "display_name": " Rescued Data Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`_rescued_data` = ''example''"
+            ]
+          },
+          {
+            "id": "f64b0487c16643eea79430b6e3f63538",
+            "display_name": "Dealstage Filter",
+            "sql": [
+              "vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`DealStage` = ''example''"
+            ]
+          }
+        ],
+        "expressions": [
+          {
+            "id": "7a59b07a5e8f4acfbcb15a7860a61a2f",
+            "alias": "closedate___year",
+            "sql": [
+              "YEAR(vc_catalog.aibi_sales_pipeline_review.opportunity.`closedate`)"
+            ]
+          },
+          {
+            "id": "81d3060a7cfb44a5ab726719293dc269",
+            "alias": "createddate___year",
+            "sql": [
+              "YEAR(vc_catalog.aibi_sales_pipeline_review.opportunity.`createddate`)"
+            ]
+          },
+          {
+            "id": "8c013a4d2c874c149738f4d5a202edd0",
+            "alias": "createddate___month",
+            "sql": [
+              "DATE_TRUNC('MONTH', vc_catalog.aibi_sales_pipeline_review.opportunity.`createddate`)"
+            ]
+          },
+          {
+            "id": "9463ff55362e476aa0ba45baf3925d29",
+            "alias": "closedate___month",
+            "sql": [
+              "DATE_TRUNC('MONTH', vc_catalog.aibi_sales_pipeline_review.opportunity.`closedate`)"
+            ]
+          },
+          {
+            "id": "c7de688d4b8946cabc3fd000aa72b4e5",
+            "alias": "createddate___month",
+            "sql": [
+              "DATE_TRUNC('MONTH', vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`CreatedDate`)"
+            ]
+          },
+          {
+            "id": "feff88d6f903448793c5448e21d93ff3",
+            "alias": "createddate___year",
+            "sql": [
+              "YEAR(vc_catalog.aibi_sales_pipeline_review.opportunityhistory_cube.`CreatedDate`)"
+            ]
+          }
+        ]
+      }
+    }
+  }
