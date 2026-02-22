@@ -6,4 +6,5 @@ plotly==6.5.2
 pandas==2.3.3
 numpy==2.4.2
 python-dotenv==1.2.1
+databricks-langchain
 networkx
