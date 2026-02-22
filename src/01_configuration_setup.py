@@ -113,7 +113,7 @@ try:
     print(f"✅ Found {result['table_count']} tables in {config['catalog']}.{config['schema']}")
 
     current_user = w.current_user.me()
-    print(f"✅ Authenticated as: {current_user.user_name}")
+    print(f"✅ Authenticated as: {current_user.executed_by}")
     print(f"✅ User ID: {current_user.id}")
 
 except Exception as e:

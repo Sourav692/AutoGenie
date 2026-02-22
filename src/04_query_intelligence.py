@@ -76,14 +76,13 @@ def extract_query_history(catalog, schema, lookback_days=90):
     SELECT
         query_id,
         statement_text,
-        user_name,
-        executed_as_user_name,
+        executed_by,
+        executed_by_user_id,
         start_time,
         end_time,
         total_duration_ms,
-        rows_produced,
         statement_type,
-        warehouse_id
+        compute.warehouse_id
     FROM system.query.history
     WHERE start_time >= '{start_date.strftime("%Y-%m-%d")}'
       AND statement_type = 'SELECT'
@@ -115,7 +114,7 @@ print(f"✅ Extracted {len(query_history)} queries")
 if query_history:
     print("\n📋 SAMPLE QUERIES:")
     for i, q in enumerate(query_history[:3], 1):
-        print(f"\n{i}. User: {q['user_name']} | Duration: {q['total_duration_ms']}ms")
+        print(f"\n{i}. User: {q['executed_by']} | Duration: {q['total_duration_ms']}ms")
         print(f"   {q['statement_text'][:150]}...")
 
 # COMMAND ----------
@@ -152,7 +151,7 @@ def parse_and_cluster_queries(query_history, n_clusters=20):
                     'joins': joins,
                     'where_clauses': where_clauses,
                     'group_by': group_by > 0,
-                    'user': query['user_name'],
+                    'user': query['executed_by'],
                     'duration_ms': query['total_duration_ms']
                 })
         except Exception:
