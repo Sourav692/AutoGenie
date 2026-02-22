@@ -1,2 +1,4 @@
 
 .databricks
+.env
+.venv
