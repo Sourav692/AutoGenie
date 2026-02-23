@@ -1,0 +1,12 @@
+command:
+  - python
+  - app.py
+env:
+  - name: DATABRICKS_HOST
+    value: "https://e2-demo-field-eng.cloud.databricks.com"
+  - name: DATABRICKS_TOKEN
+    value: ""
+  - name: DATABRICKS_CLUSTER_ID
+    value: "0921-143134-dkh98w1g"
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "862f1d757f0424f7"

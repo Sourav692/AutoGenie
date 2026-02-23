@@ -1,0 +1,6 @@
+command:
+  - node
+  - build/index.mjs
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "862f1d757f0424f7"
