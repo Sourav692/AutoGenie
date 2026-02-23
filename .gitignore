@@ -2,3 +2,4 @@
 .databricks
 .env
 .venv
+.pyc

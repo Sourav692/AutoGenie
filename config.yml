@@ -1,0 +1,24 @@
+# =============================================================================
+# Auto-Genie — Application Configuration
+# =============================================================================
+# Non-secret settings for the Auto-Genie pipeline.
+# Credentials (DATABRICKS_HOST, DATABRICKS_TOKEN) remain in .env.
+# =============================================================================
+
+# ── Databricks Compute ───────────────────────────────────────────────────────
+cluster_id: "0921-143134-dkh98w1g"
+warehouse_id: "862f1d757f0424f7"
+
+# ── Target Scope ─────────────────────────────────────────────────────────────
+catalog: "vc_catalog"
+schema: "aibi_sales_pipeline_review"
+tables:
+  - accounts
+  - opportunity
+  - opportunityhistory_cube
+  - user
+
+# ── Tuning Parameters ───────────────────────────────────────────────────────
+lookback_days: 90
+confidence_threshold: 0.75
+output_path: "/dbfs/tmp/auto_genie_outputs"

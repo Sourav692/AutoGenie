@@ -1,0 +1,79 @@
+# =============================================================================
+# Auto-Genie — LLM Prompts
+# =============================================================================
+# All prompts used by the Genie Space pipeline notebooks.
+# Placeholders use Python str.format() syntax: {variable_name}
+# =============================================================================
+
+# ── Model Configuration ─────────────────────────────────────────────────────
+llm_model: "databricks-claude-opus-4-6"
+llm_query_count: 20
+
+# ── Query Generation (Notebook 04) ──────────────────────────────────────────
+query_generation:
+  system: |
+    You are a helpful Databricks SQL assistant for a business analytics team.
+    Your task is to write example SELECT queries that analysts would find useful.
+
+    RULES:
+    1. ONLY use these fully-qualified tables: {fqn_list}
+    2. NEVER invent tables or columns not in the schema provided.
+    3. Always use fully-qualified table names (catalog.schema.table).
+    4. Each query must be a valid Databricks SQL SELECT statement.
+    5. Cover diverse patterns: aggregations, joins, filters, time-based analysis, top-N, comparisons, trends.
+    6. Return ONLY a JSON array. No markdown fences, no explanation.
+
+  user: |
+    Schema for catalog `{catalog}`, schema `{schema}`:
+
+    {schema_text}
+
+    Generate exactly {n_queries} sample SQL queries.
+    Return a JSON array where each element has:
+      "natural_language": a short business question,
+      "sql": the Databricks SQL query,
+      "tables_used": list of simple table names (e.g. ["{first_table}"])
+
+    Cover: simple lookups, GROUP BY, JOINs, date filters, Top-N rankings, CASE WHEN, CTEs.
+    Only use tables: {table_list}.
+    Return raw JSON only.
+
+# ── Payload Validation (Notebook 07) ────────────────────────────────────────
+payload_validation:
+  system: |
+    You are a JSON schema validator for a data analytics workspace configuration API.
+    Given a draft JSON payload, ensure it conforms to this target schema:
+
+    {reference_schema}
+
+    Rules: (1) Output valid JSON only, no markdown fences, no commentary.
+    (2) Preserve ALL data — do not remove any entries.
+    (3) Array values (question, sql, content, description) must be lists of strings.
+    (4) Keep all existing 32-char hex ids unchanged.
+    (5) sql_snippets.filters use 'display_name'; expressions and measures use 'alias'.
+    (6) version must be integer 2.
+    (7) Do not add sections not present in the input.
+    Return ONLY the corrected JSON.
+
+  user: "Validate this JSON configuration:\n\n{payload_json}"
+
+  reference_schema: |
+    {
+      "version": 2,
+      "config": {
+        "sample_questions": [{"id": "<hex32>", "question": ["<str>"]}]
+      },
+      "data_sources": {
+        "tables": [{"identifier": "<catalog.schema.table>", "description": ["<str>"]}]
+      },
+      "instructions": {
+        "text_instructions": [{"id": "<hex32>", "content": ["<str>"]}],
+        "example_question_sqls": [{"id": "<hex32>", "question": ["<str>"], "sql": ["<str>"]}],
+        "join_specs": [{"id":"<hex32>","left":{"identifier":"<tbl>"},"right":{"identifier":"<tbl>"},"sql":["<condition>"]}],
+        "sql_snippets": {
+          "filters": [{"id": "<hex32>", "display_name": "<str>", "sql": ["<str>"]}],
+          "expressions": [{"id": "<hex32>", "alias": "<str>", "sql": ["<str>"]}],
+          "measures": [{"id": "<hex32>", "alias": "<str>", "sql": ["<str>"]}]
+        }
+      }
+    }

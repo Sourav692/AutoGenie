@@ -8,3 +8,4 @@ numpy==2.4.2
 python-dotenv==1.2.1
 databricks-langchain
 networkx
+pyyaml
