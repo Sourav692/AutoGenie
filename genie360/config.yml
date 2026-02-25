@@ -1,0 +1,54 @@
+# =============================================================================
+# Genie360 — Application Configuration
+# =============================================================================
+# Non-secret settings for the Genie360 optimization pipeline.
+# Credentials (DATABRICKS_HOST, DATABRICKS_TOKEN) remain in .env.
+# =============================================================================
+
+# ── Databricks Compute ───────────────────────────────────────────────────────
+warehouse_id: "862f1d757f0424f7"
+cluster_id: "0921-143134-dkh98w1g"
+
+# ── LLM Configuration ────────────────────────────────────────────────────────
+llm_endpoint: "databricks-claude-sonnet-4"
+llm_max_tokens: 4096
+llm_temperature: 0.1
+
+# ── Query History Ingestion ──────────────────────────────────────────────────
+lookback_days: 30
+max_queries_per_space: 500
+
+# ── Anti-Pattern Detection ───────────────────────────────────────────────────
+# Severity thresholds for alerting
+severity_escalation:
+  critical_threshold: 1    # 1+ critical patterns → immediate alert
+  high_threshold: 3        # 3+ high patterns → escalation
+  medium_threshold: 5      # 5+ medium patterns → notification
+
+# ── SQL Rewrite Engine ───────────────────────────────────────────────────────
+safe_limit: 10000                   # Default LIMIT to inject on unbounded SELECTs
+date_range_hint_days: 30            # Default partition filter range
+cardinality_threshold: 10000        # Min cardinality for APPROX_COUNT_DISTINCT suggestion
+
+# ── LLM Refinement ──────────────────────────────────────────────────────────
+min_confidence_for_injection: 0.85  # Minimum composite score for auto-injection
+explain_plan_comparison: true       # Enable EXPLAIN plan comparison
+
+# ── Genie Space Injection ────────────────────────────────────────────────────
+auto_inject_enabled: false          # Set true for automated injection (Phase 4)
+max_rewrites_per_injection: 10      # Maximum rewrites per batch injection
+
+# ── Cost Estimation ──────────────────────────────────────────────────────────
+cost_per_dbu:
+  classic: 1.50
+  serverless: 0.70
+warehouse_size_defaults:
+  small: 8
+  medium: 16
+  large: 32
+
+# ── Report Generation ────────────────────────────────────────────────────────
+report_output_path: "/dbfs/tmp/genie360_reports"
+
+# ── Output Paths ─────────────────────────────────────────────────────────────
+output_path: "/dbfs/tmp/genie360_outputs"

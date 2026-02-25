@@ -452,6 +452,7 @@ def run_full_pipeline(
         generate_table_instructions,
         get_spark_session,
         discover_naming_pattern_relationships,
+        optimize_genie_instructions,
         profile_column_statistics,
     )
 
@@ -565,6 +566,17 @@ def run_full_pipeline(
         tbl_instr, join_instr, sql_expr, example_queries, biz_instr,
     )
     yield "✅ Knowledge store assembled", None
+
+    yield "🔄 Optimizing instructions per Genie best practices…", None
+    orig_len = len(ks.get("global_instructions", ""))
+    try:
+        ks = optimize_genie_instructions(ks, prompts)
+        opt_len = len(ks.get("global_instructions", ""))
+        yield (f"✅ Instructions optimized: {orig_len:,} → {opt_len:,} chars "
+               f"({(1 - opt_len / max(orig_len, 1)) * 100:.0f}% reduction)"), None
+    except Exception as e:
+        yield f"⚠️  Instruction optimization skipped: {e}", None
+
     yield "", None
 
     # ── STAGE 3 ──────────────────────────────────────────────────────────────
