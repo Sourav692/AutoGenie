@@ -22,3 +22,22 @@ tables:
 lookback_days: 90
 confidence_threshold: 0.75
 output_path: "/dbfs/tmp/auto_genie_outputs"
+
+# ── Metric View Generation ───────────────────────────────────────────────────
+# mode: "per_table" generates one metric view per configured table.
+#       "unified"   generates a single view joining fact + dimension tables
+#                   (only applies when relationships are discovered).
+metric_view_mode: "per_table"
+metric_view_output_path: "/dbfs/tmp/auto_genie_outputs/metric_views"
+
+# Column classification thresholds
+# Numeric columns with fewer distinct values than this are treated as
+# categorical dimensions rather than measures (e.g. a 0/1 flag column).
+metric_view_min_distinct_for_measure: 10
+# String/boolean columns with more distinct values than this are skipped
+# as dimensions (too high cardinality to be useful as a grouping field).
+metric_view_max_distinct_for_dimension: 500
+
+# Set to true to have Notebook 02 replace its rule-based sql_expressions
+# with the richer measures/dimensions produced by Notebook 04 (TASK-10).
+enrich_genie_from_metric_view: false

@@ -38,6 +38,71 @@ query_generation:
     Only use tables: {table_list}.
     Return raw JSON only.
 
+# ── Metric View Generation (Notebook 04) ────────────────────────────────────
+metric_view_generation:
+  system: |
+    You are a Databricks semantic layer expert helping to build a Unity Catalog
+    Metric View (v1.1) YAML definition for a business analytics team.
+
+    Your task is to enrich a draft metric view structure with business-friendly
+    semantic metadata. The Databricks Metric View YAML v1.1 spec supports a
+    `comment` field on the top-level view, on each dimension, and on each measure.
+
+    RULES:
+    1. Return ONLY a raw JSON object. No markdown fences, no explanation.
+    2. NEVER invent or rename column names — only use names exactly as given in the input.
+    3. Each `comment` must be a concise business description (1 sentence, under 120 chars).
+    4. For each measure, choose the single most analytically appropriate aggregation:
+       SUM, AVG, COUNT, COUNT_DISTINCT, MIN, or MAX.
+       - Financial amounts, quantities, durations → SUM
+       - Rates, scores, percentages → AVG
+       - Row counts, event counts → COUNT
+       - Unique entity counts → COUNT_DISTINCT
+    5. Set `exclude: true` ONLY for columns with zero analytical value — e.g. raw
+       system flags with constant values, internal audit timestamps not useful for
+       analysis, or columns that are exact duplicates of another column.
+    6. All other columns must be included (exclude: false).
+    7. Business domain context: {domain}
+
+  user: |
+    Table: {table_fqn}
+    Role: {table_role}
+
+    Classified columns to enrich:
+
+    TIME DIMENSIONS (date/timestamp — used as time axes for trend analysis):
+    {time_dimensions_json}
+
+    DIMENSIONS (categorical — used for grouping, filtering, and slicing):
+    {dimensions_json}
+
+    MEASURES (numeric — used for aggregation and KPI calculation):
+    {measures_json}
+
+    Column statistics for context:
+    {schema_text}
+
+    Return a JSON object with this exact structure:
+    {{
+      "view_comment": "<one sentence describing the business purpose of this table>",
+      "time_dimensions": [
+        {{"name": "<exact_col_name>", "comment": "<business description>"}}
+      ],
+      "dimensions": [
+        {{"name": "<exact_col_name>", "comment": "<business description>", "exclude": false}}
+      ],
+      "measures": [
+        {{
+          "name": "<exact_col_name>",
+          "aggregation": "<SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX>",
+          "comment": "<business description>",
+          "exclude": false
+        }}
+      ]
+    }}
+
+    Include every column listed above. Return raw JSON only.
+
 # ── Payload Validation (Notebook 07) ────────────────────────────────────────
 payload_validation:
   system: |
