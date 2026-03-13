@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Genie360 — SQL Optimization Engine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            db: { blue: '#1b3a4b', accent: '#40d1f5', red: '#EB1600', dark: '#0B2026' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .fade-in { animation: fadeIn 0.35s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    pre code { font-size: 0.82rem; line-height: 1.5; }
+    .pulse-dot { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  </style>
+</head>
+<body class="h-full bg-gray-50 text-gray-900 font-sans">
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header class="bg-db-dark text-white shadow-lg">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-db-accent flex items-center justify-center font-bold text-db-dark text-lg">G</div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">Genie360</h1>
+        <p class="text-xs text-gray-400">SQL Optimization Engine</p>
+      </div>
+    </div>
+    <span class="text-xs bg-db-accent/20 text-db-accent px-3 py-1 rounded-full font-medium">Upstream Injection</span>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────── -->
+<main class="max-w-6xl mx-auto px-6 py-8">
+
+  <!-- Strategy banner -->
+  <div class="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-8 fade-in">
+    <p class="text-sm text-blue-800 leading-relaxed">
+      <strong>Strategy:</strong> Optimize the example SQL queries in your Genie Space's Knowledge Store
+      <em>before</em> Genie uses them to generate SQL.
+      &ldquo;If you can't intercept after generation, control what gets generated in the first place.&rdquo;
+    </p>
+  </div>
+
+  <!-- Input form -->
+  <section id="input-section" class="bg-white rounded-xl shadow-sm border p-6 mb-8 fade-in">
+    <h2 class="text-lg font-semibold mb-4">Configure Optimization</h2>
+    <div class="grid md:grid-cols-2 gap-5 mb-5">
+      <div>
+        <label for="space-id" class="block text-sm font-medium text-gray-700 mb-1">Genie Space ID</label>
+        <input id="space-id" type="text" placeholder="e.g. 01efab12cd34..."
+               class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-db-accent focus:border-db-accent outline-none transition" />
+        <p class="text-xs text-gray-400 mt-1">Found in the Genie Space URL: /genie/spaces/<strong>{space_id}</strong></p>
+      </div>
+      <div>
+        <label for="warehouse-id" class="block text-sm font-medium text-gray-700 mb-1">SQL Warehouse ID</label>
+        <input id="warehouse-id" type="text" placeholder="e.g. 862f1d757f0424f7"
+               class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-db-accent focus:border-db-accent outline-none transition" />
+        <p class="text-xs text-gray-400 mt-1">The warehouse used by this Genie Space</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <button id="btn-optimize" onclick="runOptimization()"
+              class="bg-db-accent hover:bg-cyan-400 text-db-dark font-semibold px-6 py-2.5 rounded-lg text-sm transition shadow-sm">
+        Optimize Example Queries
+      </button>
+      <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+        <input id="auto-inject" type="checkbox" class="rounded border-gray-300 text-db-accent focus:ring-db-accent" />
+        Auto-inject optimized queries back into the space
+      </label>
+    </div>
+  </section>
+
+  <!-- Progress -->
+  <section id="progress-section" class="hidden mb-8 fade-in">
+    <div class="bg-white rounded-xl shadow-sm border p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="pulse-dot w-2.5 h-2.5 rounded-full bg-db-accent"></div>
+        <h2 class="text-lg font-semibold">Optimizing...</h2>
+      </div>
+      <div id="progress-log" class="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-xs max-h-60 overflow-y-auto whitespace-pre-wrap"></div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section id="results-section" class="hidden fade-in">
+
+    <!-- Summary cards -->
+    <div id="summary-cards" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"></div>
+
+    <!-- Query detail cards -->
+    <div id="query-cards" class="space-y-6 mb-8"></div>
+
+    <!-- Markdown report download -->
+    <div id="report-section" class="hidden bg-white rounded-xl shadow-sm border p-6 mb-8">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="font-semibold">Optimization Report</h3>
+          <p id="report-path" class="text-sm text-gray-500 mt-1"></p>
+        </div>
+        <button id="btn-download" onclick="downloadReport()"
+                class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-4 py-2 rounded-lg text-sm transition">
+          Download Markdown
+        </button>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Error -->
+  <section id="error-section" class="hidden mb-8 fade-in">
+    <div class="bg-red-50 border border-red-200 rounded-xl p-5">
+      <h3 class="text-red-800 font-semibold mb-1">Optimization Failed</h3>
+      <p id="error-message" class="text-sm text-red-700"></p>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────────────────── -->
+<footer class="text-center py-6 text-xs text-gray-400">
+  Genie360 v1.0 &mdash; Upstream SQL Optimization for Databricks Genie Spaces
+</footer>
+
+<script>
+const API_BASE = window.location.origin;
+let lastReportContent = null;
+
+function el(id) { return document.getElementById(id); }
+function show(id) { el(id).classList.remove('hidden'); }
+function hide(id) { el(id).classList.add('hidden'); }
+
+async function runOptimization() {
+  const spaceId = el('space-id').value.trim();
+  const warehouseId = el('warehouse-id').value.trim();
+  const autoInject = el('auto-inject').checked;
+
+  if (!spaceId) { alert('Please enter a Genie Space ID.'); return; }
+  if (!warehouseId) { alert('Please enter a SQL Warehouse ID.'); return; }
+
+  hide('results-section');
+  hide('error-section');
+  show('progress-section');
+  el('progress-log').textContent = '';
+  el('btn-optimize').disabled = true;
+  el('btn-optimize').classList.add('opacity-50', 'cursor-not-allowed');
+
+  appendLog('Starting upstream optimization pipeline...');
+  appendLog(`Space ID: ${spaceId}`);
+  appendLog(`Warehouse ID: ${warehouseId}`);
+  appendLog('');
+
+  try {
+    appendLog('Fetching example queries from Knowledge Store...');
+    const resp = await fetch(`${API_BASE}/api/v1/spaces/${spaceId}/upstream-optimize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        auto_inject: autoInject,
+        warehouse_id: warehouseId,
+      }),
+    });
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || `HTTP ${resp.status}: ${resp.statusText}`);
+    }
+
+    const data = await resp.json();
+
+    appendLog(`Found ${data.example_queries_found} example queries`);
+    appendLog(`Anti-patterns detected: ${data.total_issues}`);
+    appendLog(`Rewrites generated: ${data.rewrites_generated}`);
+    appendLog(`Above confidence threshold: ${data.above_confidence_threshold}`);
+
+    if (data.injection_result) {
+      appendLog(`Injected: ${data.injection_result.injected}, Skipped: ${data.injection_result.skipped}`);
+    }
+    appendLog('');
+    appendLog('Pipeline complete.');
+
+    hide('progress-section');
+    renderResults(data, spaceId);
+
+  } catch (err) {
+    hide('progress-section');
+    show('error-section');
+    el('error-message').textContent = err.message;
+  } finally {
+    el('btn-optimize').disabled = false;
+    el('btn-optimize').classList.remove('opacity-50', 'cursor-not-allowed');
+  }
+}
+
+function appendLog(msg) {
+  const log = el('progress-log');
+  log.textContent += msg + '\n';
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderResults(data, spaceId) {
+  show('results-section');
+
+  // Summary cards
+  const cards = el('summary-cards');
+  cards.innerHTML = '';
+  const metrics = [
+    { label: 'Example Queries', value: data.example_queries_found, color: 'blue' },
+    { label: 'Issues Found', value: data.total_issues, color: data.total_issues > 0 ? 'amber' : 'green' },
+    { label: 'Critical', value: data.critical_count, color: data.critical_count > 0 ? 'red' : 'gray' },
+    { label: 'Rewrites', value: data.rewrites_generated, color: 'cyan' },
+    { label: 'Above Threshold', value: data.above_confidence_threshold, color: 'green' },
+  ];
+  metrics.forEach(m => {
+    const colorMap = {
+      blue: 'bg-blue-50 text-blue-700 border-blue-200',
+      amber: 'bg-amber-50 text-amber-700 border-amber-200',
+      red: 'bg-red-50 text-red-700 border-red-200',
+      green: 'bg-green-50 text-green-700 border-green-200',
+      cyan: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+      gray: 'bg-gray-50 text-gray-600 border-gray-200',
+    };
+    cards.innerHTML += `
+      <div class="rounded-xl border p-4 ${colorMap[m.color]} fade-in">
+        <p class="text-2xl font-bold">${m.value}</p>
+        <p class="text-xs font-medium mt-1">${m.label}</p>
+      </div>`;
+  });
+
+  // Fetch the detailed rewrites
+  renderQueryCards(data, spaceId);
+
+  // Report path
+  if (data.report_path) {
+    show('report-section');
+    el('report-path').textContent = data.report_path;
+  } else {
+    hide('report-section');
+  }
+}
+
+async function renderQueryCards(data, spaceId) {
+  const container = el('query-cards');
+  container.innerHTML = '';
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/v1/spaces/${spaceId}/rewrites`);
+    const rewriteData = await resp.json();
+    const rewrites = rewriteData.pending_rewrites || [];
+
+    if (rewrites.length === 0 && data.total_issues === 0) {
+      container.innerHTML = `
+        <div class="bg-green-50 border border-green-200 rounded-xl p-6 text-center fade-in">
+          <p class="text-green-800 font-semibold text-lg">All Clear!</p>
+          <p class="text-green-700 text-sm mt-1">No anti-patterns detected in the Knowledge Store example queries.</p>
+        </div>`;
+      return;
+    }
+
+    if (rewrites.length === 0) {
+      container.innerHTML = `
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center fade-in">
+          <p class="text-amber-800 font-semibold">Issues detected but no rule-based rewrites were generated.</p>
+          <p class="text-amber-700 text-sm mt-1">Manual review recommended.</p>
+        </div>`;
+      return;
+    }
+
+    rewrites.forEach((rw, idx) => {
+      const conf = rw.confidence_score || 0;
+      const confPct = (conf * 100).toFixed(0);
+      const confColor = conf >= 0.85 ? 'green' : conf >= 0.6 ? 'amber' : 'red';
+      const confLabel = conf >= 0.85 ? 'High' : conf >= 0.6 ? 'Medium' : 'Low';
+      const confBadge = `<span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-${confColor}-100 text-${confColor}-700">${confLabel} (${confPct}%)</span>`;
+
+      const patterns = rw.anti_pattern_report?.patterns || [];
+      const patternsHtml = patterns.map(p => {
+        const sevColor = { CRITICAL:'red', HIGH:'orange', MEDIUM:'amber', LOW:'blue', INFO:'gray' }[p.severity] || 'gray';
+        return `<li class="text-sm"><span class="font-mono text-xs px-1.5 py-0.5 rounded bg-${sevColor}-100 text-${sevColor}-700">${p.severity}</span> <strong>${p.pattern_type}</strong>: ${p.description}</li>`;
+      }).join('');
+
+      const rulesHtml = (rw.rules_applied || []).map(r =>
+        `<span class="inline-block text-xs font-mono bg-gray-100 text-gray-700 px-2 py-0.5 rounded mr-1 mb-1">${r}</span>`
+      ).join('');
+
+      const statusIcon = conf >= 0.85 ? '✅' : '⚠️';
+      const statusText = conf >= 0.85 ? 'Ready for injection' : 'Below threshold — manual review';
+
+      container.innerHTML += `
+        <div class="bg-white rounded-xl shadow-sm border overflow-hidden fade-in">
+          <div class="bg-gray-50 border-b px-6 py-3 flex items-center justify-between">
+            <h3 class="font-semibold text-sm">Query ${idx + 1}: <span class="font-mono text-gray-500">${rw.query_id || ''}</span></h3>
+            ${confBadge}
+          </div>
+          <div class="p-6 space-y-5">
+            ${patterns.length ? `<div><h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Detected Anti-Patterns</h4><ul class="space-y-1.5">${patternsHtml}</ul></div>` : ''}
+            <div class="grid md:grid-cols-2 gap-4">
+              <div>
+                <h4 class="text-xs font-semibold text-red-500 uppercase tracking-wider mb-2">Before (Original SQL)</h4>
+                <pre class="bg-gray-900 text-gray-100 rounded-lg p-4 overflow-x-auto"><code>${escapeHtml(rw.original_sql || '')}</code></pre>
+              </div>
+              <div>
+                <h4 class="text-xs font-semibold text-green-600 uppercase tracking-wider mb-2">After (Optimized SQL)</h4>
+                <pre class="bg-gray-900 text-green-300 rounded-lg p-4 overflow-x-auto"><code>${escapeHtml(rw.final_sql || rw.rule_rewritten_sql || 'No rewrite generated')}</code></pre>
+              </div>
+            </div>
+            ${rulesHtml ? `<div><h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Rules Applied</h4>${rulesHtml}</div>` : ''}
+            <div class="text-sm text-gray-600">${statusIcon} ${statusText}</div>
+          </div>
+        </div>`;
+    });
+  } catch (err) {
+    container.innerHTML = `<p class="text-sm text-gray-500">Could not load detailed rewrites: ${err.message}</p>`;
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function downloadReport() {
+  const path = el('report-path').textContent;
+  try {
+    const resp = await fetch(`${API_BASE}/api/v1/report?path=${encodeURIComponent(path)}`);
+    if (resp.ok) {
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = path.split('/').pop() || 'genie360_report.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      alert('Report file not accessible. Check the report path on the server.');
+    }
+  } catch {
+    alert('Could not download report. The file is available on the server at:\n' + path);
+  }
+}
+</script>
+</body>
+</html>

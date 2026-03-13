@@ -1414,6 +1414,195 @@ def generate_table_instructions(
     return instructions
 
 
+def _build_optimization_context(knowledge_store: dict) -> dict[str, str]:
+    """Build the context strings needed by the instruction optimization prompt."""
+    table_summary_lines = []
+    current_desc_lines = []
+    for tbl in knowledge_store.get("tables", []):
+        name = tbl.get("table_name", tbl.get("full_name", "").split(".")[-1])
+        row_count = tbl.get("row_count", 0)
+        col_names = [c["name"] for c in tbl.get("columns", [])[:15]]
+        row_label = f"{row_count:,}" if isinstance(row_count, (int, float)) else str(row_count)
+        table_summary_lines.append(
+            f"- {name} ({row_label} rows): columns = {', '.join(col_names)}"
+        )
+        current_desc_lines.append(f"- {name}: {tbl.get('description', 'No description')}")
+
+    measures = knowledge_store.get("sql_expressions", {}).get("measures", [])
+    measures_summary = ", ".join(m["name"] for m in measures[:10]) or "None"
+
+    filters = knowledge_store.get("sql_expressions", {}).get("filters", [])
+    filters_summary = ", ".join(f["name"] for f in filters[:10]) or "None"
+
+    example_queries = knowledge_store.get("example_queries", [])
+    eq_lines = [f"- {eq['natural_language']}" for eq in example_queries[:10]]
+    eq_summary = "\n".join(eq_lines) or "None"
+
+    return {
+        "table_summary": "\n".join(table_summary_lines),
+        "current_table_descriptions": "\n".join(current_desc_lines),
+        "measures_summary": measures_summary,
+        "filters_summary": filters_summary,
+        "example_queries_summary": eq_summary,
+    }
+
+
+def optimize_genie_instructions(
+    knowledge_store: dict,
+    prompts_cfg: dict[str, Any],
+) -> dict:
+    """Use an LLM to optimize Genie Space instructions per Databricks best practices.
+
+    Separates table-level content from global instructions and produces:
+      - Concise, narrative-focused global text instructions
+      - Enriched per-table descriptions incorporating column semantics
+
+    Falls back to a rule-based optimization if the LLM call fails.
+    """
+    from databricks_langchain import ChatDatabricks
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    opt_prompts = prompts_cfg.get("instruction_optimization")
+    if not opt_prompts:
+        print("  ⚠️  No instruction_optimization prompts found — using rule-based fallback")
+        return _rule_based_optimize(knowledge_store)
+
+    model = prompts_cfg.get("llm_model", "databricks-claude-opus-4-6")
+    current_instructions = knowledge_store.get("global_instructions", "")
+    context = _build_optimization_context(knowledge_store)
+
+    user_prompt = opt_prompts["user"].format(
+        current_instructions=current_instructions,
+        **context,
+    )
+    system_prompt = opt_prompts["system"]
+
+    print(f"  🔄 Optimizing instructions via LLM ({model})…")
+    print(f"     Original instruction length: {len(current_instructions):,} chars")
+
+    try:
+        llm = ChatDatabricks(model=model)
+        raw = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]).content.strip()
+
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
+
+        result = json.loads(raw)
+
+        optimized_text = result.get("optimized_instructions", "")
+        table_descs = result.get("table_descriptions", {})
+
+        if not optimized_text or len(optimized_text) < 50:
+            print("  ⚠️  LLM returned insufficient instructions — using rule-based fallback")
+            return _rule_based_optimize(knowledge_store)
+
+        knowledge_store["global_instructions"] = optimized_text
+
+        for tbl in knowledge_store.get("tables", []):
+            simple_name = tbl.get("table_name", tbl.get("full_name", "").split(".")[-1])
+            if simple_name in table_descs:
+                tbl["description"] = table_descs[simple_name][:500]
+
+        print(f"  ✅ Optimized instruction length: {len(optimized_text):,} chars")
+        print(f"     Reduction: {len(current_instructions) - len(optimized_text):,} chars "
+              f"({(1 - len(optimized_text) / max(len(current_instructions), 1)) * 100:.0f}%)")
+        print(f"     Enriched table descriptions: {len(table_descs)}")
+
+        return knowledge_store
+
+    except json.JSONDecodeError as e:
+        print(f"  ⚠️  LLM returned invalid JSON ({e}) — using rule-based fallback")
+        return _rule_based_optimize(knowledge_store)
+    except Exception as e:
+        print(f"  ⚠️  LLM optimization failed ({type(e).__name__}: {e}) — using rule-based fallback")
+        return _rule_based_optimize(knowledge_store)
+
+
+def _rule_based_optimize(knowledge_store: dict) -> dict:
+    """Deterministic fallback: strip table-detail blocks from global instructions
+    and enrich table descriptions with relevant content extracted from them."""
+
+    current = knowledge_store.get("global_instructions", "")
+    if not current:
+        return knowledge_store
+
+    table_names = {
+        tbl.get("table_name", tbl.get("full_name", "").split(".")[-1]).upper()
+        for tbl in knowledge_store.get("tables", [])
+    }
+
+    lines = current.split("\n")
+    keep_lines: list[str] = []
+    skip_sections = {
+        "DATA MODEL OVERVIEW:", "TABLE DETAILS:", "BUSINESS METRICS & KPIS:",
+        "AVAILABLE FILTERS & DIMENSIONS:", "COMMON BUSINESS QUESTIONS:",
+    }
+
+    skipping = False
+    for line in lines:
+        stripped = line.strip()
+
+        if any(stripped.startswith(s) for s in skip_sections):
+            skipping = True
+            continue
+
+        if stripped.startswith("##") and any(tn in stripped for tn in table_names):
+            skipping = True
+            continue
+
+        is_section_header = (
+            stripped.isupper()
+            and len(stripped) > 3
+            and not stripped.startswith("-")
+            and not stripped.startswith("  ")
+        )
+        if is_section_header and skipping:
+            if stripped not in skip_sections:
+                skipping = False
+
+        if not skipping:
+            keep_lines.append(line)
+
+    optimized = "\n".join(keep_lines).strip()
+
+    while "\n\n\n" in optimized:
+        optimized = optimized.replace("\n\n\n", "\n\n")
+
+    if len(optimized) > 2000:
+        optimized = optimized[:1997] + "…"
+
+    knowledge_store["global_instructions"] = optimized
+
+    for tbl in knowledge_store.get("tables", []):
+        simple_name = tbl.get("table_name", tbl.get("full_name", "").split(".")[-1])
+        desc = tbl.get("description", "")
+
+        col_details = []
+        for col_info in tbl.get("key_columns", {}).items():
+            col_name, col_desc = col_info
+            if col_desc and col_desc != f"{col_name} column":
+                col_details.append(f"{col_name}: {col_desc}")
+
+        use_cases = tbl.get("common_use_cases", [])
+        if use_cases:
+            desc += " Use cases: " + "; ".join(use_cases[:2]) + "."
+
+        if col_details:
+            desc += " Key fields: " + "; ".join(col_details[:5]) + "."
+
+        tbl["description"] = desc[:500]
+
+    print(f"  ✅ Rule-based optimization applied")
+    print(f"     Optimized length: {len(optimized):,} chars")
+
+    return knowledge_store
+
+
 def generate_join_instructions(
     relationships: list[dict],
 ) -> list[dict]:
