@@ -9,6 +9,7 @@ Modules:
     - Relationship Discovery
     - Business Domain Intelligence (constants + detection)
     - Instruction Generation
+    - Metric View Generation
 """
 
 from __future__ import annotations
@@ -71,6 +72,20 @@ def load_yaml_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "lookback_days": int(cfg.get("lookback_days", 90)),
         "confidence_threshold": float(cfg.get("confidence_threshold", 0.75)),
         "output_path": cfg.get("output_path", "/dbfs/tmp/auto_genie_outputs"),
+        # Metric view generation settings
+        "metric_view_mode": cfg.get("metric_view_mode", "per_table"),
+        "metric_view_output_path": cfg.get(
+            "metric_view_output_path", "/dbfs/tmp/auto_genie_outputs/metric_views"
+        ),
+        "metric_view_min_distinct_for_measure": int(
+            cfg.get("metric_view_min_distinct_for_measure", 10)
+        ),
+        "metric_view_max_distinct_for_dimension": int(
+            cfg.get("metric_view_max_distinct_for_dimension", 500)
+        ),
+        "enrich_genie_from_metric_view": bool(
+            cfg.get("enrich_genie_from_metric_view", False)
+        ),
     }
 
 
@@ -1661,3 +1676,864 @@ def generate_join_instructions(
         )
 
     return join_instructions
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 9: Metric View Generation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ---------------------------------------------------------------------------
+# Data-type groups — based on Unity Catalog / Databricks SQL type names.
+# All comparisons are done in uppercase so mixed-case type strings match.
+# ---------------------------------------------------------------------------
+
+_TIME_TYPES = {
+    "DATE",
+    "TIMESTAMP",
+    "TIMESTAMP_NTZ",
+    "TIMESTAMP WITH TIME ZONE",
+    "TIMESTAMP WITHOUT TIME ZONE",
+}
+
+_NUMERIC_TYPES = {
+    "INT",
+    "INTEGER",
+    "BIGINT",
+    "LONG",
+    "SMALLINT",
+    "TINYINT",
+    "DECIMAL",
+    "NUMERIC",
+    "DOUBLE",
+    "FLOAT",
+    "REAL",
+}
+
+_STRING_TYPES = {
+    "STRING",
+    "VARCHAR",
+    "CHAR",
+    "TEXT",
+}
+
+_BOOLEAN_TYPES = {"BOOLEAN", "BOOL"}
+
+# Types with no direct analytical value in a metric view.
+_SKIP_TYPES = {"BINARY", "BYTES", "ARRAY", "MAP", "STRUCT", "VARIANT", "VOID"}
+
+# Regex patterns that strongly signal an identifier / surrogate-key column.
+# Matched against the full column name (case-insensitive).
+_ID_PATTERNS = re.compile(
+    r"(^id$"
+    r"|_id$"
+    r"|id_$"
+    r"|_key$"
+    r"|_sk$"          # surrogate key
+    r"|_nk$"          # natural key
+    r"|_guid$"
+    r"|_uuid$"
+    r"|_hash$"
+    r"|^fk_"
+    r"|^pk_)",
+    re.IGNORECASE,
+)
+
+# Patterns for columns that carry audit / system metadata and are usually
+# not useful as dimensions (excluded unless the table is tiny).
+_AUDIT_PATTERNS = re.compile(
+    r"(_at$|_by$|_ts$|^created_|^modified_|^updated_|^deleted_|^sys_|^etl_)",
+    re.IGNORECASE,
+)
+
+
+def _normalise_type(raw_type: str) -> str:
+    """Return the base type token in uppercase, stripping precision/scale.
+
+    Examples
+    --------
+    "DECIMAL(18,2)"  → "DECIMAL"
+    "VARCHAR(255)"   → "VARCHAR"
+    "TIMESTAMP_NTZ"  → "TIMESTAMP_NTZ"
+    """
+    return raw_type.strip().upper().split("(")[0].split("<")[0]
+
+
+def _lookup_profile(
+    column_name: str,
+    profiles: list[dict],
+) -> dict:
+    """Return the profile dict for *column_name*, or an empty dict if absent."""
+    for p in profiles:
+        if p["column"] == column_name:
+            return p
+    return {}
+
+
+def classify_columns_for_metric_view(
+    table_metadata: dict[str, dict],
+    column_profiles: dict[str, list[dict]],
+    config: dict,
+) -> dict[str, dict[str, list[dict]]]:
+    """Classify every column across all tables into metric-view roles.
+
+    This function is fully generic — it works on any catalog/schema/table
+    combination. No column names, table names, or domain-specific logic are
+    hardcoded. Classification is driven entirely by:
+
+    * Unity Catalog data type
+    * Column-level statistics from ``profile_column_statistics``
+      (distinct count, null %, cardinality category)
+    * Common naming conventions for identifier/surrogate-key columns
+    * Config thresholds:
+        - ``metric_view_min_distinct_for_measure``   (default 10)
+        - ``metric_view_max_distinct_for_dimension`` (default 500)
+
+    Parameters
+    ----------
+    table_metadata:
+        Output of ``extract_table_metadata``.  Keyed by FQN; each value has
+        a ``columns`` list with ``column_name``, ``data_type``, ``is_nullable``.
+    column_profiles:
+        Output of ``profile_column_statistics``.  Keyed by FQN; each value is
+        a list of per-column profile dicts with ``distinct_count``,
+        ``null_percentage``, ``cardinality_category``, etc.
+    config:
+        Loaded config dict (from ``load_yaml_config``).
+
+    Returns
+    -------
+    dict keyed by FQN, each value being::
+
+        {
+            "time_dimensions": [{"name": ..., "data_type": ..., "distinct_count": ..., "null_percentage": ...}],
+            "dimensions":      [...],
+            "measures":        [...],
+            "identifiers":     [...],
+            "skipped":         [...],
+        }
+    """
+    min_distinct_measure = config.get("metric_view_min_distinct_for_measure", 10)
+    max_distinct_dimension = config.get("metric_view_max_distinct_for_dimension", 500)
+
+    result: dict[str, dict[str, list[dict]]] = {}
+
+    for fqn, meta in table_metadata.items():
+        tbl_profiles = column_profiles.get(fqn, [])
+
+        buckets: dict[str, list[dict]] = {
+            "time_dimensions": [],
+            "dimensions": [],
+            "measures": [],
+            "identifiers": [],
+            "skipped": [],
+        }
+
+        for col in meta["columns"]:
+            col_name: str = col["column_name"]
+            raw_type: str = col.get("data_type", "STRING")
+            base_type = _normalise_type(raw_type)
+
+            profile = _lookup_profile(col_name, tbl_profiles)
+            distinct_count: int = profile.get("distinct_count", 0)
+            null_pct: float = profile.get("null_percentage", 0.0)
+
+            entry = {
+                "name": col_name,
+                "data_type": raw_type,
+                "distinct_count": distinct_count,
+                "null_percentage": null_pct,
+            }
+
+            # ── 1. Types with no metric-view utility → skip immediately ──────
+            if base_type in _SKIP_TYPES:
+                entry["reason"] = f"unsupported type ({raw_type})"
+                buckets["skipped"].append(entry)
+                continue
+
+            # ── 2. Date / timestamp → time dimension ─────────────────────────
+            if base_type in _TIME_TYPES:
+                buckets["time_dimensions"].append(entry)
+                continue
+
+            # ── 3. Boolean → always a low-cardinality dimension ──────────────
+            if base_type in _BOOLEAN_TYPES:
+                buckets["dimensions"].append(entry)
+                continue
+
+            # ── 4. Identifier pattern check (string or numeric columns) ──────
+            #    Must come before the general numeric/string classification so
+            #    that surrogate keys are not mistakenly treated as measures.
+            if _ID_PATTERNS.search(col_name):
+                entry["reason"] = "identifier pattern in column name"
+                buckets["identifiers"].append(entry)
+                continue
+
+            # ── 5. Numeric columns ────────────────────────────────────────────
+            if base_type in _NUMERIC_TYPES:
+                if distinct_count < min_distinct_measure:
+                    # Very few distinct values → this is a categorical flag
+                    # (e.g. 0/1, 1-5 rating), not a meaningful aggregate.
+                    entry["reason"] = (
+                        f"low cardinality numeric ({distinct_count} distinct) "
+                        f"— treated as dimension"
+                    )
+                    buckets["dimensions"].append(entry)
+                else:
+                    buckets["measures"].append(entry)
+                continue
+
+            # ── 6. String / char columns ──────────────────────────────────────
+            if base_type in _STRING_TYPES:
+                if distinct_count > max_distinct_dimension:
+                    # Too many unique string values to be useful for grouping.
+                    # Treat as identifier / free-text and skip from metric view.
+                    entry["reason"] = (
+                        f"high cardinality string ({distinct_count} distinct) "
+                        f"— exceeds dimension threshold of {max_distinct_dimension}"
+                    )
+                    buckets["identifiers"].append(entry)
+                else:
+                    buckets["dimensions"].append(entry)
+                continue
+
+            # ── 7. Anything else (unknown / exotic types) → skip ─────────────
+            entry["reason"] = f"unrecognised type ({raw_type})"
+            buckets["skipped"].append(entry)
+
+        result[fqn] = buckets
+
+    return result
+
+
+def detect_table_roles(
+    table_metadata: dict[str, dict],
+    relationships: list[dict],
+    column_classifications: dict[str, dict[str, list[dict]]],
+) -> dict[str, str]:
+    """Classify each table as ``'fact'`` or ``'dimension'``.
+
+    Uses a weighted scoring system driven entirely by table statistics and
+    column classifications — no table/column names are hardcoded.
+
+    Scoring signals
+    ---------------
+    1. **Relative row count** (0–3 pts)
+       Tables with more rows than their peers are more likely to be fact tables
+       (they record events/transactions that multiply over time).
+
+    2. **Time dimension presence** (0–2 pts)
+       Fact tables almost always carry at least one date/timestamp column that
+       records *when* an event occurred.
+
+    3. **Measure count** (0–2 pts)
+       Numeric columns suitable for aggregation (SUM, AVG, etc.) are a strong
+       indicator of a fact table.
+
+    4. **FK identifier count** (0–2 pts)
+       Multiple surrogate-key / foreign-key columns pointing to other tables are
+       a hallmark of a fact table in a star or snowflake schema.
+
+    5. **Relationship role** (−1 / 0 / +1 pts, tiebreaker)
+       If relationship data is available from ``discover_naming_pattern_relationships``:
+       - Appearing as a *source* (has outbound FK references) → +1 (fact signal)
+       - Appearing only as a *target* (referenced by others, never references) → −1
+
+    Threshold: score ≥ 4  →  ``'fact'``,  score < 4  →  ``'dimension'``
+
+    Parameters
+    ----------
+    table_metadata:
+        Output of ``extract_table_metadata``.
+    relationships:
+        Output of any relationship-discovery function (may be empty list).
+    column_classifications:
+        Output of ``classify_columns_for_metric_view``.
+
+    Returns
+    -------
+    dict mapping each FQN to ``'fact'`` or ``'dimension'``.
+    """
+    if not table_metadata:
+        return {}
+
+    # ── Pre-compute row-count stats for relative scoring ────────────────────
+    row_counts = {fqn: meta.get("row_count", 0) for fqn, meta in table_metadata.items()}
+    max_rows = max(row_counts.values()) if row_counts else 1
+
+    # ── Pre-compute relationship roles ───────────────────────────────────────
+    # A table is a "source" if it appears as the FK side of any relationship.
+    # A table is a "target" if it appears as the PK/referenced side.
+    rel_sources: set[str] = set()
+    rel_targets: set[str] = set()
+    for rel in relationships:
+        src = rel.get("source_table") or rel.get("table", "")
+        tgt = rel.get("target_table") or rel.get("referenced_table", "")
+        if src:
+            rel_sources.add(src)
+        if tgt:
+            rel_targets.add(tgt)
+
+    roles: dict[str, str] = {}
+    scores: dict[str, int] = {}
+
+    for fqn, meta in table_metadata.items():
+        classifications = column_classifications.get(fqn, {})
+        n_time   = len(classifications.get("time_dimensions", []))
+        n_meas   = len(classifications.get("measures", []))
+        n_ids    = len(classifications.get("identifiers", []))
+        row_count = row_counts[fqn]
+        row_ratio = row_count / max_rows if max_rows > 0 else 0
+
+        score = 0
+
+        # Signal 1 — relative row count (0–3 pts)
+        if row_ratio >= 0.5:
+            score += 3
+        elif row_ratio >= 0.2:
+            score += 2
+        elif row_ratio >= 0.05:
+            score += 1
+
+        # Signal 2 — time dimension presence (0–2 pts)
+        if n_time >= 2:
+            score += 2
+        elif n_time == 1:
+            score += 1
+
+        # Signal 3 — measure count (0–2 pts)
+        if n_meas >= 3:
+            score += 2
+        elif n_meas >= 1:
+            score += 1
+
+        # Signal 4 — FK identifier count (0–2 pts)
+        if n_ids >= 3:
+            score += 2
+        elif n_ids >= 2:
+            score += 1
+
+        # Signal 5 — relationship role tiebreaker (−1 / 0 / +1 pt)
+        simple = fqn.split(".")[-1]
+        is_source = fqn in rel_sources or simple in rel_sources
+        is_target = fqn in rel_targets or simple in rel_targets
+        if is_source and not is_target:
+            score += 1
+        elif is_target and not is_source:
+            score -= 1
+
+        scores[fqn] = score
+        roles[fqn] = "fact" if score >= 4 else "dimension"
+
+    # ── Edge case: if every table scored below the threshold, promote the
+    #    highest-scoring one to fact so the caller always has at least one
+    #    fact table to build a metric view from. ───────────────────────────
+    if all(r == "dimension" for r in roles.values()) and len(roles) > 1:
+        top_fqn = max(scores, key=lambda f: scores[f])
+        roles[top_fqn] = "fact"
+
+    return roles
+
+
+# ── Metric view column-name quoting helper ────────────────────────────────────
+_NEEDS_BACKTICK = re.compile(r"[^a-zA-Z0-9_]")
+
+
+def _quote_col(col_name: str) -> str:
+    """Return *col_name* wrapped in backticks if it contains special characters."""
+    return f"`{col_name}`" if _NEEDS_BACKTICK.search(col_name) else col_name
+
+
+def _default_agg(data_type: str) -> str:
+    """Return a sensible default aggregation function for a measure column."""
+    return "SUM" if _normalise_type(data_type) in _NUMERIC_TYPES else "COUNT"
+
+
+def build_metric_view_dict(
+    table_fqn: str,
+    table_role: str,
+    column_classifications: dict[str, dict[str, list[dict]]],
+    llm_enrichments: dict[str, dict],
+    relationships: list[dict],
+    config: dict,
+) -> dict:
+    """Assemble a Python dict representing a Databricks Metric View (v1.1).
+
+    The returned dict maps directly to the YAML spec fields — no ``display_name``
+    or ``data_type`` fields (not part of the spec).  Pass the result to
+    ``serialize_and_validate_metric_view`` to obtain the YAML string.
+
+    Parameters
+    ----------
+    table_fqn:
+        Fully-qualified table name, e.g. ``"vc_catalog.schema.opportunity"``.
+    table_role:
+        ``"fact"`` or ``"dimension"`` — output of ``detect_table_roles``.
+    column_classifications:
+        Output of ``classify_columns_for_metric_view``, keyed by FQN.
+    llm_enrichments:
+        Enrichment dict for *this* table, keyed by column name.  Each value may
+        contain ``description``, ``display_name``, ``aggregation``, and/or
+        ``exclude`` (bool).  A special ``"__table__"`` key may carry a
+        table-level ``description``.  Pass ``{}`` when LLM step is skipped.
+    relationships:
+        Relationship list from any discovery function.  Used in unified mode to
+        build ``joins`` entries.  May be an empty list.
+    config:
+        Loaded config dict (from ``load_yaml_config``).
+
+    Returns
+    -------
+    dict
+        Spec-compliant Metric View dict.  Top-level keys: ``version``,
+        ``comment``, ``source``, optionally ``joins``, ``dimensions``,
+        ``measures``.  Also contains a private ``_view_name`` key (the
+        recommended Unity Catalog object name) that the serializer should
+        strip before emitting YAML.
+
+    Notes
+    -----
+    - ``name`` fields on dimensions/measures use the raw column name; the
+      serializer wraps the YAML scalar in quotes when needed.
+    - ``expr`` values use backtick-quoted column names where the name contains
+      spaces or special characters.
+    - In unified mode (``metric_view_mode: "unified"``), joins are derived from
+      *relationships* where *table_fqn* is the FK side (source).
+    """
+    mode = config.get("metric_view_mode", "per_table")
+    classifications = column_classifications.get(table_fqn, {})
+    enrichments = llm_enrichments or {}
+
+    simple_name = table_fqn.split(".")[-1]
+
+    # ── Top-level metadata ────────────────────────────────────────────────────
+    table_comment = (
+        enrichments.get("__table__", {}).get("description")
+        or f"Metric view for {simple_name} ({table_role} table)"
+    )
+
+    mv: dict = {
+        "version": "1.1",
+        "comment": table_comment,
+        "source": table_fqn,
+        # Private key — used by the serializer to name the UC object / file.
+        # Not emitted in the YAML output.
+        "_view_name": f"{simple_name}_metrics",
+    }
+
+    # ── Joins (unified mode, fact tables only) ────────────────────────────────
+    joins: list[dict] = []
+    if mode == "unified" and table_role == "fact":
+        seen_aliases: set[str] = set()
+        for rel in relationships:
+            src = rel.get("source_table") or rel.get("table", "")
+            tgt = rel.get("target_table") or rel.get("referenced_table", "")
+            src_col = rel.get("source_column") or rel.get("column", "")
+            tgt_col = rel.get("target_column") or rel.get("referenced_column", "")
+
+            # Only build a join where this table is the FK source.
+            if src not in (table_fqn, simple_name):
+                continue
+            if not (tgt and src_col and tgt_col):
+                continue
+
+            alias = tgt.split(".")[-1]
+            if alias in seen_aliases:
+                continue
+            seen_aliases.add(alias)
+
+            joins.append({
+                "name": alias,
+                "source": tgt,
+                "on": f"{_quote_col(src_col)} = {alias}.{_quote_col(tgt_col)}",
+            })
+
+    if joins:
+        mv["joins"] = joins
+
+    # ── Dimensions (time_dimensions + regular dimensions) ─────────────────────
+    dimensions: list[dict] = []
+    for col in (
+        classifications.get("time_dimensions", [])
+        + classifications.get("dimensions", [])
+    ):
+        col_name = col["name"]
+        enrichment = enrichments.get(col_name, {})
+        if enrichment.get("exclude"):
+            continue
+        dim: dict = {
+            "name": col_name,
+            "expr": _quote_col(col_name),
+        }
+        comment = enrichment.get("description") or enrichment.get("display_name")
+        if comment:
+            dim["comment"] = comment
+        dimensions.append(dim)
+
+    mv["dimensions"] = dimensions
+
+    # ── Measures ──────────────────────────────────────────────────────────────
+    measures: list[dict] = []
+    for col in classifications.get("measures", []):
+        col_name = col["name"]
+        enrichment = enrichments.get(col_name, {})
+        if enrichment.get("exclude"):
+            continue
+        agg = (
+            enrichment.get("aggregation") or _default_agg(col.get("data_type", "DOUBLE"))
+        ).upper()
+        meas: dict = {
+            "name": col_name,
+            "expr": f"{agg}({_quote_col(col_name)})",
+        }
+        comment = enrichment.get("description") or enrichment.get("display_name")
+        if comment:
+            meas["comment"] = comment
+        # Optional measure-level filter from LLM enrichment.
+        meas_filter = enrichment.get("filter")
+        if meas_filter:
+            meas["filter"] = meas_filter
+        measures.append(meas)
+
+    mv["measures"] = measures
+
+    return mv
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASK-07 — LLM Enrichment for Semantic Naming
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _snake_to_title(name: str) -> str:
+    """Convert a snake_case column name to a Title Case display label."""
+    return " ".join(word.capitalize() for word in name.replace("-", "_").split("_"))
+
+
+def _rule_based_enrichment(classifications: dict[str, list[dict]]) -> dict[str, dict]:
+    """Generate plain enrichment without LLM — snake_case → Title Case, default aggregation."""
+    enrichments: dict[str, dict] = {}
+    for col in classifications.get("time_dimensions", []):
+        enrichments[col["name"]] = {
+            "display_name": _snake_to_title(col["name"]),
+            "description": "",
+            "exclude": False,
+        }
+    for col in classifications.get("dimensions", []):
+        enrichments[col["name"]] = {
+            "display_name": _snake_to_title(col["name"]),
+            "description": "",
+            "exclude": False,
+        }
+    for col in classifications.get("measures", []):
+        enrichments[col["name"]] = {
+            "display_name": _snake_to_title(col["name"]),
+            "description": "",
+            "aggregation": _default_agg(col.get("data_type", "DOUBLE")),
+            "exclude": False,
+        }
+    return enrichments
+
+
+def _parse_llm_enrichment_response(raw: str) -> dict[str, dict]:
+    """Parse the LLM JSON response into an enrichment dict keyed by column name."""
+    stripped = raw.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped.strip())
+
+    data = json.loads(stripped)
+    enrichments: dict[str, dict] = {}
+
+    if data.get("view_comment"):
+        enrichments["__table__"] = {"description": data["view_comment"]}
+
+    for item in data.get("time_dimensions", []):
+        name = item.get("name", "")
+        if name:
+            enrichments[name] = {
+                "display_name": _snake_to_title(name),
+                "description": item.get("comment", ""),
+                "exclude": bool(item.get("exclude", False)),
+            }
+
+    for item in data.get("dimensions", []):
+        name = item.get("name", "")
+        if name:
+            enrichments[name] = {
+                "display_name": _snake_to_title(name),
+                "description": item.get("comment", ""),
+                "exclude": bool(item.get("exclude", False)),
+            }
+
+    for item in data.get("measures", []):
+        name = item.get("name", "")
+        if name:
+            enrichments[name] = {
+                "display_name": _snake_to_title(name),
+                "description": item.get("comment", ""),
+                "aggregation": item.get("aggregation", "SUM"),
+                "exclude": bool(item.get("exclude", False)),
+            }
+
+    return enrichments
+
+
+def enrich_metric_view_with_llm(
+    table_fqn: str,
+    column_classifications: dict[str, dict[str, list[dict]]],
+    table_metadata: dict[str, dict],
+    prompts_cfg: dict,
+    config: dict,
+    table_role: str = "fact",
+) -> dict[str, dict]:
+    """Call the LLM to enrich each classified column with semantic metadata.
+
+    Returns an enrichment dict keyed by column name, each value containing:
+
+    * ``display_name``  — human-readable label (e.g. "Close Date")
+    * ``description``   — 1-sentence business explanation (mapped to YAML ``comment``)
+    * ``aggregation``   — confirmed aggregation for measures (SUM / AVG / COUNT / etc.)
+    * ``exclude``       — True if the LLM flags the column as not analytically useful
+
+    A special ``"__table__"`` key carries a table-level description used as the
+    Metric View top-level ``comment``.
+
+    Retry strategy
+    --------------
+    1. **Full schema** — column names + types + nullable flags
+    2. **Minimal schema** — column names + types only (shorter prompt)
+    3. **Rule-based fallback** — snake_case → Title Case, default aggregation,
+       empty descriptions.  Always succeeds.
+
+    Parameters
+    ----------
+    table_fqn:
+        Fully-qualified table name.
+    column_classifications:
+        Output of ``classify_columns_for_metric_view``, keyed by FQN.
+    table_metadata:
+        Output of ``extract_table_metadata``, keyed by FQN.
+    prompts_cfg:
+        Loaded prompts dict (from ``load_prompts``).
+    config:
+        Loaded config dict (from ``load_yaml_config``).
+    table_role:
+        ``"fact"`` or ``"dimension"`` — passed to the LLM as context.
+
+    Notes
+    -----
+    Requires ``langchain-core`` and ``databricks-langchain`` to be installed.
+    Both packages are available on Databricks Runtime 15+ clusters.
+    """
+    try:
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from databricks_langchain import ChatDatabricks
+    except ImportError as exc:
+        raise ImportError(
+            "langchain-core and databricks-langchain are required. "
+            "Install them or skip LLM enrichment by passing an empty dict."
+        ) from exc
+
+    classifications = column_classifications.get(table_fqn, {})
+    meta = table_metadata.get(table_fqn, {})
+    model = prompts_cfg.get("llm_model", "databricks-claude-opus-4-6")
+    prompt_cfg = prompts_cfg.get("metric_view_generation", {})
+    system_template = prompt_cfg.get("system", "")
+    user_template = prompt_cfg.get("user", "")
+
+    # Derive a human-readable domain label from the schema name when not configured.
+    domain = config.get("business_domain") or config.get("schema", "").replace("_", " ")
+
+    # ── Schema text builders ──────────────────────────────────────────────────
+    def _full_schema_text() -> str:
+        lines = []
+        for col in meta.get("columns", []):
+            nullable = "NULL" if col.get("is_nullable", "YES") == "YES" else "NOT NULL"
+            lines.append(f"  {col['column_name']} {col.get('data_type', 'STRING')} {nullable}")
+        return "\n".join(lines)
+
+    def _minimal_schema_text() -> str:
+        return ", ".join(
+            f"{c['column_name']} ({c.get('data_type', 'STRING')})"
+            for c in meta.get("columns", [])
+        )
+
+    def _format_col_list(cols: list[dict]) -> str:
+        return json.dumps(
+            [{"name": c["name"], "data_type": c.get("data_type", "STRING")} for c in cols],
+            indent=2,
+        )
+
+    system_prompt = system_template.format(domain=domain)
+
+    attempts = [
+        ("full schema",    _full_schema_text()),
+        ("minimal schema", _minimal_schema_text()),
+    ]
+
+    for attempt_label, schema_text in attempts:
+        user_prompt = user_template.format(
+            table_fqn=table_fqn,
+            table_role=table_role,
+            time_dimensions_json=_format_col_list(classifications.get("time_dimensions", [])),
+            dimensions_json=_format_col_list(classifications.get("dimensions", [])),
+            measures_json=_format_col_list(classifications.get("measures", [])),
+            schema_text=schema_text,
+        )
+        try:
+            llm = ChatDatabricks(model=model)
+            response = llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ])
+            enrichments = _parse_llm_enrichment_response(response.content)
+            return enrichments
+
+        except json.JSONDecodeError as exc:
+            print(f"  ⚠️  JSON parse error on {attempt_label} attempt — retrying...\n  {exc}")
+        except Exception as exc:
+            err_msg = str(exc)
+            if "guardrail" in err_msg.lower() or "BAD_REQUEST" in err_msg:
+                print(f"  ⚠️  Input guardrail triggered on {attempt_label} — retrying...\n")
+            else:
+                print(f"  ❌ LLM error on {attempt_label} attempt: {err_msg}\n")
+
+    print(f"⚠️  All LLM attempts failed for {table_fqn} — using rule-based fallback")
+    return _rule_based_enrichment(classifications)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TASK-08 — YAML Serializer and Validator
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Private key injected by build_metric_view_dict — must be stripped before emit.
+_MV_PRIVATE_KEYS = {"_view_name"}
+
+# sqlglot dialect to use for expression validation.
+_SQLGLOT_DIALECT = "databricks"
+
+
+def _clean_for_yaml(mv_dict: dict) -> dict:
+    """Return a copy of *mv_dict* with private underscore keys removed."""
+    return {k: v for k, v in mv_dict.items() if k not in _MV_PRIVATE_KEYS}
+
+
+def _validate_expressions(mv_dict: dict) -> dict[str, dict[str, str]]:
+    """Validate dimension and measure SQL expressions using sqlglot.
+
+    Each expression is wrapped in::
+
+        SELECT {expr} FROM {source} LIMIT 1
+
+    and parsed with ``sqlglot.parse_one``.  Returns a report dict::
+
+        {
+            "measures":        {"col_name": "passed" | "failed: <reason>"},
+            "dimensions":      {"col_name": "passed" | "failed: <reason>"},
+            "time_dimensions": {"col_name": "passed" | "failed: <reason>"},
+        }
+    """
+    import sqlglot
+
+    source = mv_dict.get("source", "unknown_table")
+    report: dict[str, dict[str, str]] = {
+        "measures": {},
+        "dimensions": {},
+        "time_dimensions": {},
+    }
+
+    # Classify each item into its bucket for the report.
+    # time_dimensions are dimensions whose expr is a bare date/timestamp column —
+    # they appear in the dimensions list of the YAML but we track them separately.
+    for field_item in mv_dict.get("dimensions", []):
+        name = field_item["name"]
+        expr = field_item.get("expr", name)
+        test_sql = f"SELECT {expr} FROM {source} LIMIT 1"
+        try:
+            sqlglot.parse_one(test_sql, dialect=_SQLGLOT_DIALECT)
+            # Distinguish time_dimensions by checking the original name —
+            # time_dimensions are included in dimensions list in the YAML,
+            # so we report them all under "dimensions" for simplicity.
+            report["dimensions"][name] = "passed"
+        except Exception as exc:
+            report["dimensions"][name] = f"failed: {exc}"
+
+    for meas_item in mv_dict.get("measures", []):
+        name = meas_item["name"]
+        expr = meas_item.get("expr", f"SUM({name})")
+        test_sql = f"SELECT {expr} FROM {source} LIMIT 1"
+        try:
+            sqlglot.parse_one(test_sql, dialect=_SQLGLOT_DIALECT)
+            report["measures"][name] = "passed"
+        except Exception as exc:
+            report["measures"][name] = f"failed: {exc}"
+
+    return report
+
+
+def serialize_and_validate_metric_view(metric_view_dict: dict) -> dict:
+    """Serialize a Metric View dict to YAML and validate all SQL expressions.
+
+    Parameters
+    ----------
+    metric_view_dict:
+        Output of ``build_metric_view_dict``.  May contain the private
+        ``_view_name`` key — this is stripped before serialization.
+
+    Returns
+    -------
+    dict with two keys:
+
+    ``yaml_string``
+        Clean YAML text, parseable by ``yaml.safe_load``, conforming to the
+        Databricks Metric View v1.1 spec.
+
+    ``validation``
+        Per-expression pass/fail report::
+
+            {
+                "measures":   {"col": "passed" | "failed: <reason>"},
+                "dimensions": {"col": "passed" | "failed: <reason>"},
+            }
+
+    ``view_name``
+        The recommended Unity Catalog object name (e.g. ``"opportunity_metrics"``),
+        taken from the private ``_view_name`` key.
+
+    ``passed``
+        True if every expression in the validation report passed.
+
+    Notes
+    -----
+    * PyYAML ``default_flow_style=False`` produces block-style output.
+    * ``allow_unicode=True`` preserves non-ASCII characters in descriptions.
+    * ``sort_keys=False`` preserves the insertion order of spec fields
+      (version → comment → source → joins → dimensions → measures).
+    * Expressions that contain backticks are valid in Databricks SQL but may
+      cause sqlglot to emit a warning — these are still reported as "passed"
+      when ``parse_one`` succeeds.
+    """
+    view_name = metric_view_dict.get("_view_name", "")
+    spec_dict = _clean_for_yaml(metric_view_dict)
+
+    # ── Serialize ─────────────────────────────────────────────────────────────
+    yaml_string = yaml.dump(
+        spec_dict,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+        indent=2,
+        width=120,
+    )
+
+    # ── Validate ──────────────────────────────────────────────────────────────
+    validation = _validate_expressions(spec_dict)
+
+    all_results = list(validation["measures"].values()) + list(validation["dimensions"].values())
+    passed = all(r == "passed" for r in all_results)
+
+    return {
+        "yaml_string": yaml_string,
+        "validation": validation,
+        "view_name": view_name,
+        "passed": passed,
+    }
